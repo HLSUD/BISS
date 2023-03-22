@@ -1,0 +1,1 @@
+epochs=2, loss=0.00388, batch shape: torch.Size([16, 1920]), LR=0.001
