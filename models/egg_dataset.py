@@ -60,5 +60,6 @@ class coch_eigen_set(Dataset):
             nor_factor =  np.linalg.norm(sum_v)
             unit_v = sum_v / nor_factor
             y = np.append(y,[np.append(unit_v,np.exp(-nor_factor-1))], axis=0)
+            # y = np.append(y,[sum_v], axis=0)
         return y
 
