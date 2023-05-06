@@ -10,7 +10,7 @@ import torchvision.transforms as transforms
 from tqdm import tqdm
 
 from models.LNR.lnr_eigen import LNR_eigen
-from models.egg_dataset import coch_eigen_set
+from models.egg_dataset import coch_set
 def train(modelConfig: Dict):
 
     # get args

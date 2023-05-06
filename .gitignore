@@ -1,3 +1,14 @@
+# My ignore files
+wandb/
+data/test
+data/train 
+checkpoints/lnr*
+checkpoints/CNN*
+*.pth.tar
+data/data
+data/audio
+data/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

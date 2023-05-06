@@ -47,7 +47,8 @@ class dnn_basic(nn.Module):
         self.double_conv4 = double_conv(4*channels, 2*channels // factor)
 
         
-        self.fc2 = nn.Linear(2*channels * 64 * 64, output_size)
+        self.fc2 = nn.Linear(2*channels * 64 * 64, 64 * 64)
+        self.fc3 = nn.Linear(64 * 64, output_size)
         self.dpt1 = nn.Dropout(p=0.5)
         self.dpt2 = nn.Dropout(p=0.3)
 
@@ -81,9 +82,11 @@ class dnn_basic(nn.Module):
 
     def forward(self, x):
         x = F.normalize(x,dim=1)
+
         x = self.fc1(x)
         # fc dropout
         # x = self.dpt1(x) ## eval 0
+
         # reshape
         x = self.uflatten(x)
         # x = x.reshape(x.shape[0], -1)
@@ -100,6 +103,7 @@ class dnn_basic(nn.Module):
 
         x = x.reshape(x.shape[0], -1)
         x = self.fc2(x)
+        x = self.fc3(x)
         x = self.dpt2(x) ## eval 0
 
         return x

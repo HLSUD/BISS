@@ -1,28 +1,32 @@
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__),'../'))
-
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:20480"
 from models.train import train, eval
 
 def main(model_config = None):
     modelConfig = {
         "type": "train", # train or eval
-        "model_name": "CNN_eigen", # CNN_eigen or LNR_eigen
+        "model_name": "LNR", # CNN or LNR
         "num_channels": 64,
-        "num_times": 30,
-        "output_size": 257,
-        "epochs": 1,
+        "num_times": 500,
+        "output_size": 34480,
+        "output_type": 0,
+        "epochs": 100,
         "batch_size": 32,
         "learning_rate": 1e-4,
         "weight_decay": 0.001,
         "device": "cpu",
         "train_data_dir": "./data/train/",
+        "val_data_dir": "./data/val/",
         "test_data_dir": "./data/test/",
+        "eeg_data_dir": "./data/",
         "eeg_data_name": "eeg_data.npy",
-        "eigen_data_name": "coch_imags.npy",
-        "save_weight_dir": "./checkpoints/",
+        "coch_img_name": "spec_idx.csv",
+        "save_weight_dir": "/mnt/nvme-ssd/hliuco/Documents/data/BISS/checkpoints/multigpu_lnr/",
         "load_weights": False,
-        "ckpt_path": "./checkpoints/lnr_egn_ckpt_0.pt"
+        "ckpt_path": "/mnt/nvme-ssd/hliuco/Documents/data/BISS/checkpoints/spec/LNR_corr_ckpt_9.pth.tar",
+        "image_data_dir": '/mnt/nvme-ssd/hliuco/Documents/data/BISS/images/spectrogram/'
         }
     if model_config is not None:
         modelConfig = model_config
