@@ -25,7 +25,7 @@ def main(model_config = None):
         "coch_img_name": "spec_idx.csv",
         "save_weight_dir": "/mnt/nvme-ssd/hliuco/Documents/data/BISS/checkpoints/multigpu_lnr/",
         "load_weights": False,
-        "ckpt_path": "/mnt/nvme-ssd/hliuco/Documents/data/BISS/checkpoints/spec/LNR_corr_ckpt_9.pth.tar",
+        "ckpt_path": "/mnt/nvme-ssd/hliuco/Documents/data/BISS/checkpoints/multigpu_lnr/ckps/LNR_corr_ckpt_19.pth.tar",
         "image_data_dir": '/mnt/nvme-ssd/hliuco/Documents/data/BISS/images/spectrogram/'
         }
     if model_config is not None:

@@ -2,6 +2,7 @@
 
 import os
 from typing import Dict
+from collections import OrderedDict
 import logging
 
 
@@ -22,9 +23,20 @@ def save_checkpoint(state, filename="my_checkpoint.pth.tar"):
     torch.save(state, filename)
 
 
-def load_checkpoint(checkpoint, model, optimizer):
+def load_checkpoint(checkpoint, model, optimizer, num_gpu = 1):
     logging.info(f"=> Loading checkpoint")
-    model.load_state_dict(checkpoint["state_dict"])
+    state_dict =checkpoint['state_dict']   
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        if 'module' not in k:
+            k = 'module.'+k
+        else:
+            k = k.replace('features.module.', 'module.features.')
+        new_state_dict[k]=v
+    if num_gpu > 1:
+        model.load_state_dict(new_state_dict)
+    else:
+        model.load_state_dict(state_dict)
     optimizer.load_state_dict(checkpoint["optimizer"])
 
 
@@ -209,7 +221,7 @@ def train(modelConfig: Dict):
 
 
 
-        
+        # model.module.state_dict()
         checkpoint = {"state_dict": model.state_dict(), "optimizer": optimizer.state_dict()}
         # save checkpoint
         save_checkpoint(checkpoint, os.path.join(
