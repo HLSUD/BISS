@@ -4,6 +4,7 @@ import torch
 import pandas as pd
 import numpy as np
 from skimage import io
+from PIL import Image
 from torch.utils.data import Dataset
 
 # Ignore warnings
@@ -122,11 +123,14 @@ class coch_set(Dataset):
         eeg = self.eeg_data[start_pos:end_pos].reshape(-1,self.eeg_data.shape[-1]*self.eeg_merge_size)
         eeg = np.squeeze(eeg)
         eeg = torch.tensor(eeg,dtype=torch.float32)
-
+        print(self.coch_imgs.iloc[idx, 2])
         # target
         img_name = os.path.join(self.data_dir, self.coch_imgs.iloc[idx, 1],
                                 self.coch_imgs.iloc[idx, 2])
-        image = io.imread(img_name,as_gray=True)
+        image = np.array(Image.open(img_name))
+        if len(image.shape) != 2:
+            print("Image size is wrong...")
+        # image = io.imread(img_name,as_gray=True)
 
         target = None
         if self.output_type == 0:

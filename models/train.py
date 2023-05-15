@@ -53,9 +53,9 @@ def corr_loss(output, target):
 
 def train(modelConfig: Dict):
 
-    logging.basicConfig(filename="train.log",level=logging.INFO, format='%(levelname)s: %(message)s')
 
     # get args
+    subj_name = modelConfig["subj_name"]
     model_name = modelConfig["model_name"]
     num_channels = modelConfig["num_channels"]
     num_times = modelConfig["num_times"]
@@ -74,6 +74,8 @@ def train(modelConfig: Dict):
     weight_decay = modelConfig["weight_decay"]
     output_type = modelConfig["output_type"]
     image_data_dir = modelConfig["image_data_dir"]
+    eeg_data_name = subj_name + '_' + eeg_data_name
+    logging.basicConfig(filename=model_name + "train_"+ subj_name +".log",level=logging.INFO, format='%(levelname)s: %(message)s')
 
     input_size = num_channels * num_times
     # device
@@ -225,7 +227,7 @@ def train(modelConfig: Dict):
         checkpoint = {"state_dict": model.state_dict(), "optimizer": optimizer.state_dict()}
         # save checkpoint
         save_checkpoint(checkpoint, os.path.join(
-            weight_dir,model_name + '_corr_ckpt_' + str(epoch) + ".pth.tar"))
+            weight_dir, subj_name,model_name + '_corr_ckpt_' + str(epoch) + ".pth.tar"))
         # torch.save(model.state_dict(), os.path.join(
         #     weight_dir, 'lnr_egn_ckpt_' + str(epoch) + ".pt"))
     return

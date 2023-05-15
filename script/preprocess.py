@@ -12,6 +12,7 @@ import pandas as pd
 
 import matplotlib.pyplot as plt
 from matplotlib.image import imsave
+from PIL import Image
 import librosa
 import librosa.display
 # import IPython.display as ipd
@@ -31,27 +32,27 @@ from time import sleep, time
 
 
 def mask_spec(height, width, num_seg, ratio, spec, method=0):
-#     if method == 1:
-#         # based on row
-#     if method == 2:
-#         # based on column
-#     if method == 0:
-#         # default
+    #     if method == 1:
+    #         # based on row
+    #     if method == 2:
+    #         # based on column
+    #     if method == 0:
+    #         # default
     spec = np.copy(spec)
     num_mask = int(ratio * num_seg * num_seg)
     mask_ind = np.random.choice(range(num_seg*num_seg), num_mask, replace=False)
-#     col_ind = np.random.choice(range(num_seg), num_mask, replace=False)
-    r_mask_size = height // num_seg
-    c_mask_size = width // num_seg
-    row_start = np.empty((num_mask,),dtype=np.int)
-    row_end = np.empty((num_mask,),dtype=np.int)
-    col_start = np.empty((num_mask,),dtype=np.int)
-    col_end = np.empty((num_mask,),dtype=np.int)
-#     row_start = row_ind * r_mask_size
-    row_start = mask_ind//num_seg * r_mask_size
-    row_end = row_start + r_mask_size
-    col_start = mask_ind%num_seg * c_mask_size
-    col_end = col_start + c_mask_size
+    #     col_ind = np.random.choice(range(num_seg), num_mask, replace=False)
+    r_mask_size = height / num_seg
+    c_mask_size = width / num_seg
+    row_start = np.empty((num_mask,),dtype=np.int32)
+    row_end = np.empty((num_mask,),dtype=np.int32)
+    col_start = np.empty((num_mask,),dtype=np.int32)
+    col_end = np.empty((num_mask,),dtype=np.int32)
+    #     row_start = row_ind * r_mask_size
+    row_start = (mask_ind / num_seg * r_mask_size).astype(np.int32)
+    row_end = (row_start + r_mask_size).astype(np.int32)
+    col_start = (mask_ind%num_seg * c_mask_size).astype(np.int32)
+    col_end = (col_start + c_mask_size).astype(np.int32)
 
     for i in range(num_mask):
         spec[row_start[i]:row_end[i],col_start[i]:col_end[i]] = 0
@@ -76,7 +77,7 @@ def plot_spectrogram(specgram, title=None, ylabel="freq_bin"):
     axs.set_title(title or "Spectrogram")
     axs.set_ylabel(ylabel)
     axs.set_xlabel("frame")
-#     im = axs.imshow(librosa.power_to_db(specgram), origin="lower", aspect="auto")
+    #     im = axs.imshow(librosa.power_to_db(specgram), origin="lower", aspect="auto")
     im = axs.imshow(specgram, origin="lower", aspect="auto")
     fig.colorbar(im, ax=axs)
     plt.show(block=False)
@@ -99,12 +100,11 @@ def wav_2_spec(filename, audio_name, mel_args, win_len, hop_size, audio_dur = 60
         spectrogram = None
         # n_stft = n_stft = int((1024//2) + 1)
         spectrogram = mel_spec_transform(s_audio)
-        # print(spectrogram.shape)
-        plot_spectrogram(spectrogram)
-        imag_name = audio_name + '_' + str(i) + '.png'
-        imag_path = '/mnt/nvme-ssd/hliuco/Documents/data/BISS/images/spectrogram/' + 'male_s4' +'/'+ imag_name
-        imsave(imag_path, spectrogram)
-        
+        imag_name = audio_name + '_' + str(i) + '.tiff'
+        imag_path = '/mnt/nvme-ssd/hliuco/Documents/data/BISS/images/spectrogram/' + 'female_s1' +'/'+ imag_name
+        # imsave(imag_path, spectrogram)
+        img = Image.fromarray(spectrogram.numpy())
+        img.save(imag_path)
         print(imag_name + ' saved ...')
     return
 
@@ -116,8 +116,8 @@ def spec_2_wav(spectrogram, inv_mel_args, g_mel_args):
     return waveform
 
 def w2s_demo():
-    filename = '/home/hliuco/Documents/BISS/data/audio/male_s4_600.wav'
-    audio_name = 'male_s4'
+    filename = '/home/hliuco/Documents/BISS/data/audio/female_s1.wav'
+    audio_name = 'female_s1'
     spec_win_len = 5000
     hop_size = 100
     audio_dur = 600
@@ -289,25 +289,33 @@ def split_spec_dataset(spec_num, hop_size):
     coch_dir_2 = 'male_s4'
     coch_dir_1 = 'female_s1'
     for i,idx in enumerate(train_idx):
-        coch_name_1 = 'female_s1_' + str(idx) + '.png'
-        coch_name_2 = 'male_s4_' + str(idx) + '.png'
+        coch_name_1 = 'female_s1_' + str(idx) + '.tiff'
+        coch_name_2 = 'male_s4_' + str(idx) + '.tiff'
         df_train.loc[len(df_train.index)] = [idx * hop_size, coch_dir_1, coch_name_1]     
         df_train.loc[len(df_train.index)] = [idx * hop_size + 60000, coch_dir_2, coch_name_2] 
     for i,idx in enumerate(val_idx):
-        coch_name_1 = 'female_s1_' + str(idx) + '.png'
-        coch_name_2 = 'male_s4_' + str(idx) + '.png'
+        coch_name_1 = 'female_s1_' + str(idx) + '.tiff'
+        coch_name_2 = 'male_s4_' + str(idx) + '.tiff'
         df_val.loc[len(df_val.index)] = [idx*hop_size, coch_dir_1, coch_name_1]     
         df_val.loc[len(df_val.index)] = [idx*hop_size+60000, coch_dir_2, coch_name_2] 
     for i,idx in enumerate(test_idx):
-        coch_name_1 = 'female_s1_' + str(idx) + '.png'
-        coch_name_2 = 'male_s4_' + str(idx) + '.png'
+        coch_name_1 = 'female_s1_' + str(idx) + '.tiff'
+        coch_name_2 = 'male_s4_' + str(idx) + '.tiff'
         df_test.loc[len(df_test.index)] = [idx*hop_size, coch_dir_1, coch_name_1]     
         df_test.loc[len(df_test.index)] = [idx*hop_size + 60000, coch_dir_2, coch_name_2]
         
-    df_train.to_csv('data/train_spec_idx.csv', index=False)
-    df_val.to_csv('data/val_spec_idx.csv', index=False)
-    df_test.to_csv('data/test_spec_idx.csv', index=False)
+    df_train.to_csv('data/train_spec_idx_tiff.csv', index=False)
+    df_val.to_csv('data/val_spec_idx_tiff.csv', index=False)
+    df_test.to_csv('data/test_spec_idx_tiff.csv', index=False)
+
+def merge_fm(subj_id):
+    female_eeg_data = np.load("data/eeg_data/subj"+str(subj_id)+"_single_f.npy").T[:60000]
+    male_eeg_data = np.load("data/eeg_data/subj"+str(subj_id)+"_single_m.npy").T[:60000]
+    eeg_data = np.concatenate((female_eeg_data, male_eeg_data), axis=0)
+    np.save("data/eeg_data/subj"+str(subj_id)+"_eeg_data.npy",eeg_data)
 
 if __name__ == '__main__':
     # w2s_demo()
-    split_spec_dataset(5951,10)
+    # split_spec_dataset(5951,10)
+    merge_fm(2)
+    merge_fm(4)
