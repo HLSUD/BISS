@@ -123,7 +123,7 @@ class coch_set(Dataset):
         eeg = self.eeg_data[start_pos:end_pos].reshape(-1,self.eeg_data.shape[-1]*self.eeg_merge_size)
         eeg = np.squeeze(eeg)
         eeg = torch.tensor(eeg,dtype=torch.float32)
-        print(self.coch_imgs.iloc[idx, 2])
+        # print(self.coch_imgs.iloc[idx, 2])
         # target
         img_name = os.path.join(self.data_dir, self.coch_imgs.iloc[idx, 1],
                                 self.coch_imgs.iloc[idx, 2])
@@ -156,6 +156,10 @@ class coch_set(Dataset):
 
 
         return sample
+
+    def get_image_name(self, idx):
+        print(self.coch_imgs.iloc[idx, 2])
+        return self.coch_imgs.iloc[idx, 2]
 
     def generate_eigen_dataset(self, coch_images):
         """

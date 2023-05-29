@@ -271,12 +271,14 @@ def split_dataset():
     df_val.to_csv('../data/val_spec_idx.csv', index=False)
     df_test.to_csv('../data/test_spec_idx.csv', index=False)
 
-def split_spec_dataset(spec_num, hop_size):
+def split_spec_dataset(spec_num, hop_size, win_size=50):
     # spec_num = 5951
-    num_train = int(spec_num * 0.8)
-    num_val = int(spec_num * 0.1)
-    num_test = int(spec_num * 0.1)
-    idx = np.arange(spec_num)
+    num_zero_look = 551
+    remain = spec_num - num_zero_look
+    num_train = int(remain * 0.8)
+    num_val = int(remain * 0.1)
+    num_test = int(remain * 0.1)
+    idx = np.arange(remain)
     np.random.shuffle(idx)
     train_idx = idx[:num_train]
     val_idx = idx[num_train:num_val+num_train]
@@ -285,6 +287,7 @@ def split_spec_dataset(spec_num, hop_size):
     df_train = pd.DataFrame(columns=['eeg_idx','spec_dir','spec_name'])
     df_val = pd.DataFrame(columns=['eeg_idx','spec_dir','spec_name'])
     df_test = pd.DataFrame(columns=['eeg_idx','spec_dir','spec_name'])
+    df_zero_look = pd.DataFrame(columns=['eeg_idx','spec_dir','spec_name'])
 
     coch_dir_2 = 'male_s4'
     coch_dir_1 = 'female_s1'
@@ -303,10 +306,17 @@ def split_spec_dataset(spec_num, hop_size):
         coch_name_2 = 'male_s4_' + str(idx) + '.tiff'
         df_test.loc[len(df_test.index)] = [idx*hop_size, coch_dir_1, coch_name_1]     
         df_test.loc[len(df_test.index)] = [idx*hop_size + 60000, coch_dir_2, coch_name_2]
-        
+    start_idx = remain + win_size
+    for idx in range(start_idx, spec_num):
+        coch_name_1 = 'female_s1_' + str(idx) + '.tiff'
+        coch_name_2 = 'male_s4_' + str(idx) + '.tiff'
+        df_zero_look.loc[len(df_zero_look.index)] = [idx*hop_size, coch_dir_1, coch_name_1]     
+        df_zero_look.loc[len(df_zero_look.index)] = [idx*hop_size + 60000, coch_dir_2, coch_name_2]
+
     df_train.to_csv('data/train_spec_idx_tiff.csv', index=False)
     df_val.to_csv('data/val_spec_idx_tiff.csv', index=False)
     df_test.to_csv('data/test_spec_idx_tiff.csv', index=False)
+    df_zero_look.to_csv('data/zerolook_spec_idx_tiff.csv', index=False)
 
 def merge_fm(subj_id):
     female_eeg_data = np.load("data/eeg_data/subj"+str(subj_id)+"_single_f.npy").T[:60000]
@@ -316,6 +326,6 @@ def merge_fm(subj_id):
 
 if __name__ == '__main__':
     # w2s_demo()
-    # split_spec_dataset(5951,10)
-    merge_fm(2)
-    merge_fm(4)
+    split_spec_dataset(5951,10)
+    # merge_fm(2)
+    # merge_fm(4)

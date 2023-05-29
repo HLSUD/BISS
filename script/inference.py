@@ -26,7 +26,9 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
     ## eeg start index
     eeg_indices = []
     # get args
+    type = modelConfig["type"]
     model_name = modelConfig["model_name"]
+    subj_name = modelConfig["subj_name"]
     num_channels = modelConfig["num_channels"]
     num_times = modelConfig["num_times"]
     output_size = modelConfig["output_size"]
@@ -42,23 +44,38 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
     eeg_indices = modelConfig["eeg_indices"]
     output_type = modelConfig["output_type"]
     image_data_dir = modelConfig["image_data_dir"]
+    device = modelConfig["device"]
 
+    eeg_data_name = subj_name + '_' + eeg_data_name
     input_size = num_channels * num_times
 
+    infer_data_dir = None
+    res_save_dir = None
+    if type == 'train':
+        infer_data_dir = train_data_dir
+        res_save_dir = '/train/'
+    elif type == 'val':
+        infer_data_dir = val_data_dir
+        res_save_dir = '/val/'
+    elif type == 'test':
+        infer_data_dir = test_data_dir
+        res_save_dir = '/test/'
     # device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.cuda.empty_cache()
     # load the weights
     ckpt = None
     if model is None:
         if model_name == 'LNR':
-            model = LNR_eigen(input_size=input_size, output_size=output_size).to(device)
+            model = LNR_eigen(input_size=input_size, output_size=output_size)
         elif model_name == 'CNN':
-            model = dnn_basic(input_size=input_size, output_size=output_size).to(device)
-        model= nn.DataParallel(model)
+            model = dnn_basic(input_size=input_size, output_size=output_size)
+        if device == 'cuda':
+            model= nn.DataParallel(model)
+            print('Using GPUs for the inference...')
         model.to(device)
         if load_weights:
-            ckpt = torch.load(ckpt_path, map_location=device)
+            ckpt = torch.load(ckpt_path, map_location='cpu')
             # model.load_state_dict(ckpt)
             state_dict =ckpt['state_dict']
             
@@ -79,7 +96,7 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
     
 
     dataset = coch_set(eeg_file = eeg_data_dir + eeg_data_name,
-                                coch_img_file = train_data_dir + coch_img_name,
+                                coch_img_file = infer_data_dir + coch_img_name,
                                 data_dir= image_data_dir,
                                 eeg_merge_size = num_times,
                                 eeg_hop_size= 10,
@@ -100,19 +117,20 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
             pred_spec = model(x)
             
             
-            # difference between scores and y
-            # save spectrogram
-            # spectrogram = torch.clamp(torch.reshape(pred_spec, (80, 431)), min=1e-5)
-            spectrogram = 20 * torch.log10(torch.clamp(torch.reshape(pred_spec, (80, 431)), min=1e-5)) - 20
-            spectrogram = torch.clamp((spectrogram + 100) / 100, 0.0, 1.0)
-            print(spectrogram.shape)
-            np.save('../diffwave/train_spec_'+str(idx)+'.npy',spectrogram.cpu().numpy())
-            # image = np.squeeze(pred_spec.cpu().numpy(), axis=0).reshape(80,431)
-            # plt.imsave('data/outputs/val_spec'+str(idx)+'.png', image)
-            # img = Image.fromarray(image)
-            # img.save('data/outputs/val_spec'+str(idx)+'.tiff')
-            # true_img = Image.fromarray(y.cpu().numpy().reshape(80,431))
-            # true_img.save('data/outputs/val_true_spec'+str(idx)+'.tiff')
+            # difference between scores and y NOT IMPLEMENTED YET
+
+            # save spectrogram as numpy array
+            # spectrogram = 20 * torch.log10(torch.clamp(torch.reshape(pred_spec, (80, 431)), min=1e-5)) - 20
+            # spectrogram = torch.clamp((spectrogram + 100) / 100, 0.0, 1.0)
+            # print(spectrogram.shape)
+            # np.save('../diffwave/train_spec_'+str(idx)+'.npy',spectrogram.cpu().numpy())
+            image_name = dataset.get_image_name(idx).split('.')[0]
+            image = np.squeeze(pred_spec.cpu().numpy(), axis=0).reshape(80,431)
+            plt.imsave('data/outputs/'+ subj_name + res_save_dir +image_name + model_name +'.png', image)
+            img = Image.fromarray(image)
+            img.save('data/outputs/'+subj_name + res_save_dir + image_name + model_name + '.tiff')
+            true_img = Image.fromarray(y.cpu().numpy().reshape(80,431))
+            true_img.save('data/outputs/'+subj_name +'/true/'+image_name+'.tiff')
             
 
     model.train()
@@ -120,25 +138,27 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
 
 def main(model_config = None):
     modelConfig = {
-        "model_name": "LNR", # CNN or LNR
+        "type": "test",
+        "model_name": "CNN", # CNN or LNR
+        "subj_name": "subj1",
         "num_channels": 64,
         "num_times": 500,
         "output_size": 34480,
         "output_type": 0,
         "epochs": 100,
-        "batch_size": 32,
+        "batch_size": 1,
         "learning_rate": 1e-4,
         "weight_decay": 0.001,
-        "device": "cpu",
+        "device": "cuda",
         "train_data_dir": "./data/train/",
         "val_data_dir": "./data/val/",
         "test_data_dir": "./data/test/",
-        "eeg_data_dir": "./data/",
+        "eeg_data_dir": "./data/eeg_data/",
         "eeg_data_name": "eeg_data.npy",
         "coch_img_name": "spec_idx.csv",
         "save_weight_dir": "/mnt/nvme-ssd/hliuco/Documents/data/BISS/checkpoints/multigpu_lnr/",
         "load_weights": True,
-        "ckpt_path": "/mnt/nvme-ssd/hliuco/Documents/data/BISS/checkpoints/multigpu_lnr/LNR_corr_ckpt_20.pth.tar",
+        "ckpt_path": "/mnt/nvme-ssd/hliuco/Documents/data/BISS/checkpoints/multicpu_cnn/subj1/CNN_corr_ckpt_19.pth.tar",
         "image_data_dir": '/mnt/nvme-ssd/hliuco/Documents/data/BISS/images/spectrogram/',
         "eeg_indices": [0,1,3]
         }
