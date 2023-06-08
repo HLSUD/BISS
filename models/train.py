@@ -1,5 +1,6 @@
 ### wandb amp
-
+### https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
+from models.NN.new_dnn import dnn_v2
 import os
 from typing import Dict
 from collections import OrderedDict
@@ -17,7 +18,8 @@ import wandb
 from models.LNR.lnr_eigen import LNR_eigen
 from models.egg_dataset import coch_set
 from models.NN.dnn_basic import dnn_basic
-
+from models.NN.u_net import u_net
+from models.ssim_loss import SSIM
 def save_checkpoint(state, filename="my_checkpoint.pth.tar"):
     logging.info(f"=> Saving checkpoint %s" % (filename))
     torch.save(state, filename)
@@ -50,6 +52,8 @@ def corr_loss(output, target):
     
     return 1-torch.sum(output_sub*target_sub)/torch.sqrt(output_var*target_var)
 
+def new_mse(input, target):
+    return (target*(input-target)**2).mean()
 
 def train(modelConfig: Dict):
 
@@ -74,12 +78,15 @@ def train(modelConfig: Dict):
     weight_decay = modelConfig["weight_decay"]
     output_type = modelConfig["output_type"]
     image_data_dir = modelConfig["image_data_dir"]
+    device = modelConfig["device"]
+    beta = modelConfig["beta"]
     eeg_data_name = subj_name + '_' + eeg_data_name
     logging.basicConfig(filename=model_name + "train_"+ subj_name +".log",level=logging.INFO, format='%(levelname)s: %(message)s')
 
     input_size = num_channels * num_times
     # device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cpu"
     torch.cuda.empty_cache()
     logging.info(f'Using device {device}')
 
@@ -108,10 +115,14 @@ def train(modelConfig: Dict):
     model = None
     # Initlize network
     if model_name == 'LNR':
-        model = LNR_eigen(input_size=input_size, output_size=output_size).to(device)
+        model = LNR_eigen(input_size=input_size, output_size=output_size)
     elif model_name == 'CNN':
-        model = dnn_basic(input_size=input_size, output_size=output_size).to(device)
-    model= nn.DataParallel(model)
+        model = dnn_basic(input_size=input_size, output_size=output_size)
+    elif model_name == 'DNN_V2':
+        model = dnn_v2(input_size=input_size, output_size=output_size)
+    if device == 'cuda':
+        model= torch.nn.DataParallel(model)
+        print('Using GPUs...')
     model.to(device)
     # Loss and optimizer
     criterion = nn.MSELoss() ## l2 + pearson??
@@ -121,7 +132,11 @@ def train(modelConfig: Dict):
     if load_weights:
         load_checkpoint(torch.load(ckpt_path, map_location=device), model, optimizer)
         logging.info(f"Loading weights from {ckpt_path} ...")
-        
+
+    ## new optimizer
+    ssim = SSIM()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, verbose = True)
     # if load_weights:
     #     ckpt = torch.load(ckpt_path, map_location=device)
     #     model.load_state_dict(ckpt)
@@ -158,8 +173,11 @@ def train(modelConfig: Dict):
 
                 # forward
                 scores = model(data)
-                loss = criterion(scores, targets) + corr_loss(scores, targets)
-                # loss = criterion(scores, targets)
+
+                
+                # torch.reshape(scores, (batch_size,1,80, 431))
+                loss = new_mse(scores, targets) + corr_loss(scores, targets) / beta + 1 - ssim(torch.reshape(scores, (-1,1,80, 431)), torch.reshape(targets, (-1,1,80, 431)))
+                # loss = criterion(scores, targets)+ corr_loss(scores, targets)
                 losses.append(loss.item())
 
                 # backward
@@ -194,15 +212,15 @@ def train(modelConfig: Dict):
                 if division_step > 0:
                     if global_step % division_step == 0:
                         histograms = {}
-                        for tag, value in model.named_parameters():
-                            tag = tag.replace('/', '.')
-                            if not (torch.isinf(value) | torch.isnan(value)).any():
-                                histograms['Weights/' + tag] = wandb.Histogram(value.data.cpu())
-                            if not (torch.isinf(value.grad) | torch.isnan(value.grad)).any():
-                                histograms['Gradients/' + tag] = wandb.Histogram(value.grad.data.cpu())
+                        # for tag, value in model.named_parameters():
+                        #     tag = tag.replace('/', '.')
+                            # if not (torch.isinf(value) | torch.isnan(value)).any():
+                            #     histograms['Weights/' + tag] = wandb.Histogram(value.data.cpu())
+                            # if not (torch.isinf(value.grad) | torch.isnan(value.grad)).any():
+                            #     histograms['Gradients/' + tag] = wandb.Histogram(value.grad.data.cpu())
                         
                         val_score = eval(modelConfig, model, val_dataloader)
-                        lr_scheduler.step(val_score)
+                        # lr_scheduler.step(val_score)
 
                         logging.info('Epoch: %d, step: %d Validation score: %.8lf' % (epoch, global_step, val_score))
                         try:
@@ -217,17 +235,15 @@ def train(modelConfig: Dict):
                             pass
         # lr_scheduler
         mean_loss = sum(losses) / len(losses)
-        logging.info(f"The average loss for train set is %.8lf" % (mean_loss))
+        logging.info(f"The average loss for train set is %.8lf, learning rate is %.8lf" % (mean_loss,optimizer.param_groups[0]['lr']))
         # print("The average loss for train set is %.8lf" % (mean_loss))
         # lr_scheduler.step(mean_loss)
-
-
 
         # model.module.state_dict()
         checkpoint = {"state_dict": model.state_dict(), "optimizer": optimizer.state_dict()}
         # save checkpoint
         save_checkpoint(checkpoint, os.path.join(
-            weight_dir, subj_name,model_name + '_corr_ckpt_' + str(epoch) + ".pth.tar"))
+            weight_dir, subj_name, model_name + '_corr_ckpt_' + str(epoch) + ".pth.tar"))
         # torch.save(model.state_dict(), os.path.join(
         #     weight_dir, 'lnr_egn_ckpt_' + str(epoch) + ".pt"))
     return
@@ -246,11 +262,12 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
     eeg_data_dir =  modelConfig["eeg_data_dir"]
     eeg_data_name =  modelConfig["eeg_data_name"]
     coch_img_name =  modelConfig["coch_img_name"]
-
+    device = modelConfig["device"]
+    beta = modelConfig["beta"]
     input_size = num_channels * num_times
 
     # device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
     # load weights and evaluate
     criterion = nn.MSELoss() ## l2
 
@@ -261,6 +278,9 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
             model = LNR_eigen(input_size=input_size, output_size=output_size).to(device)
         elif model_name == 'CNN':
             model = dnn_basic(input_size=input_size, output_size=output_size).to(device)
+        elif model_name == 'DNN_V2':
+            model = dnn_v2(input_size=input_size, output_size=output_size).to(device)
+
         if load_weights:
             ckpt = torch.load(ckpt_path, map_location=device)
             model.load_state_dict(ckpt)
@@ -279,6 +299,8 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
 
     model.eval()
     num_val_batches = len(dataloader)
+    ssim = SSIM()
+
     dice_score = 0
     losses = []
     with torch.no_grad():
@@ -289,7 +311,7 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
             scores = model(x)
             # loss = criterion(eigen_vs, y)
             # add pearson loss
-            loss = criterion(scores, y) + corr_loss(scores, y)
+            loss = new_mse(scores, y) + corr_loss(scores, y) / beta + 1 - ssim(torch.reshape(scores, (-1,1,80, 431)), torch.reshape(y, (-1,1,80, 431)))
 
             losses.append(loss.item())
             # cos_v2 = torch.sum(eigen_vs[:,:256] * y[:,:256],1)

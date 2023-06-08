@@ -95,13 +95,13 @@ def wav_2_spec(filename, audio_name, mel_args, win_len, hop_size, audio_dur = 60
     start_loc = 0
     # spectrogram = None
     for i in range(start_loc, num_spec):
-        s_audio = audio[i*hop_size:i*hop_size+seg_sample_size]
+        s_audio = audio[i*hop_size*sample_rate//1000:i*hop_size*sample_rate//1000+seg_sample_size]
         mel_spec_transform = torchaudio.transforms.MelSpectrogram(**mel_args)
         spectrogram = None
         # n_stft = n_stft = int((1024//2) + 1)
         spectrogram = mel_spec_transform(s_audio)
         imag_name = audio_name + '_' + str(i) + '.tiff'
-        imag_path = '/mnt/nvme-ssd/hliuco/Documents/data/BISS/images/spectrogram/' + 'female_s1' +'/'+ imag_name
+        imag_path = '/mnt/nvme-ssd/hliuco/Documents/data/BISS/images/spectrogram/' + 'male_s4' +'/'+ imag_name
         # imsave(imag_path, spectrogram)
         img = Image.fromarray(spectrogram.numpy())
         img.save(imag_path)
@@ -116,8 +116,8 @@ def spec_2_wav(spectrogram, inv_mel_args, g_mel_args):
     return waveform
 
 def w2s_demo():
-    filename = '/home/hliuco/Documents/BISS/data/audio/female_s1.wav'
-    audio_name = 'female_s1'
+    filename = '/home/hliuco/Documents/BISS/data/audio/male_s4_600.wav'
+    audio_name = 'male_s4'
     spec_win_len = 5000
     hop_size = 100
     audio_dur = 600
@@ -325,7 +325,7 @@ def merge_fm(subj_id):
     np.save("data/eeg_data/subj"+str(subj_id)+"_eeg_data.npy",eeg_data)
 
 if __name__ == '__main__':
-    # w2s_demo()
-    split_spec_dataset(5951,10)
+    w2s_demo()
+    # split_spec_dataset(5951,10)
     # merge_fm(2)
     # merge_fm(4)

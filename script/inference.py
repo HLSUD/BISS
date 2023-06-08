@@ -1,5 +1,6 @@
 ### wandb amp
 
+from models.NN.new_dnn import dnn_v2
 import os
 from typing import Dict
 import logging
@@ -11,6 +12,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
+from torchmetrics.functional import structural_similarity_index_measure
 import numpy as np
 # import cv2
 import matplotlib.pyplot as plt
@@ -70,6 +72,8 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
             model = LNR_eigen(input_size=input_size, output_size=output_size)
         elif model_name == 'CNN':
             model = dnn_basic(input_size=input_size, output_size=output_size)
+        elif model_name == 'DNN_V2':
+            model = dnn_v2(input_size=input_size, output_size=output_size)
         if device == 'cuda':
             model= nn.DataParallel(model)
             print('Using GPUs for the inference...')
@@ -80,15 +84,17 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
             state_dict =ckpt['state_dict']
             
             new_state_dict = OrderedDict()
+            if device == 'cuda':
+                for k, v in state_dict.items():
+                    if 'module' not in k:
+                        k = 'module.'+k
+                    else:
+                        k = k.replace('features.module.', 'module.features.')
+                    new_state_dict[k]=v
 
-            for k, v in state_dict.items():
-                if 'module' not in k:
-                    k = 'module.'+k
-                else:
-                    k = k.replace('features.module.', 'module.features.')
-                new_state_dict[k]=v
-
-            model.load_state_dict(new_state_dict)
+                model.load_state_dict(new_state_dict)
+            else:
+                model.load_state_dict(state_dict)
             logging.info(f"Load weight from " + ckpt_path)
         else :
             logging.info(f"Please give the ckp path...")
@@ -104,9 +110,11 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
                                 )
     # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    similarity_score = []
+    # similarity_score = 
+    ssim_list = []
     model.eval()
     with torch.no_grad():
+    
         for idx in eeg_indices:
             x, y = dataset[idx]
             x = x[None, :]
@@ -116,36 +124,41 @@ def eval(modelConfig: Dict, model = None, dataloader = None):
             y = y.to(device)
             pred_spec = model(x)
             
-            
+            # ssim = structural_similarity_index_measure(pred_spec, y) #BxCxHxW
+            # ssim_list.append(ssim)
             # difference between scores and y NOT IMPLEMENTED YET
 
             # save spectrogram as numpy array
             # spectrogram = 20 * torch.log10(torch.clamp(torch.reshape(pred_spec, (80, 431)), min=1e-5)) - 20
             # spectrogram = torch.clamp((spectrogram + 100) / 100, 0.0, 1.0)
             # print(spectrogram.shape)
-            # np.save('../diffwave/train_spec_'+str(idx)+'.npy',spectrogram.cpu().numpy())
+            # np.save('../diffwave/test_cnn_spec_'+str(idx)+'.npy',spectrogram.cpu().numpy())
+
+            # save spec
             image_name = dataset.get_image_name(idx).split('.')[0]
             image = np.squeeze(pred_spec.cpu().numpy(), axis=0).reshape(80,431)
-            plt.imsave('data/outputs/'+ subj_name + res_save_dir +image_name + model_name +'.png', image)
+            # plt.imsave('data/outputs/'+ subj_name + res_save_dir +image_name + model_name +'.png', image)
             img = Image.fromarray(image)
             img.save('data/outputs/'+subj_name + res_save_dir + image_name + model_name + '.tiff')
             true_img = Image.fromarray(y.cpu().numpy().reshape(80,431))
             true_img.save('data/outputs/'+subj_name +'/true/'+image_name+'.tiff')
-            
+        # ssim_list = torch.cat(ssim_list, dim=1)
+    # mean, std = torch.std_mean(ssim_list)
+    # print(mean, std) 
 
     model.train()
-    return similarity_score
+    return 
 
 def main(model_config = None):
     modelConfig = {
-        "type": "test",
-        "model_name": "CNN", # CNN or LNR
+        "type": "train",
+        "model_name": "DNN_V2", # CNN or LNR
         "subj_name": "subj1",
         "num_channels": 64,
         "num_times": 500,
         "output_size": 34480,
         "output_type": 0,
-        "epochs": 100,
+        "epochs": 1,
         "batch_size": 1,
         "learning_rate": 1e-4,
         "weight_decay": 0.001,
@@ -158,7 +171,7 @@ def main(model_config = None):
         "coch_img_name": "spec_idx.csv",
         "save_weight_dir": "/mnt/nvme-ssd/hliuco/Documents/data/BISS/checkpoints/multigpu_lnr/",
         "load_weights": True,
-        "ckpt_path": "/mnt/nvme-ssd/hliuco/Documents/data/BISS/checkpoints/multicpu_cnn/subj1/CNN_corr_ckpt_19.pth.tar",
+        "ckpt_path": "/mnt/nvme-ssd/hliuco/Documents/data/BISS/checkpoints/multigpu_lnr/subj1/keep/DNN_V2_corr_ckpt_49.pth.tar",
         "image_data_dir": '/mnt/nvme-ssd/hliuco/Documents/data/BISS/images/spectrogram/',
         "eeg_indices": [0,1,3]
         }
