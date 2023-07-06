@@ -29,6 +29,17 @@ from time import sleep, time
 # np_spec = spectrogram.numpy()
 # print(np_spec.shape)
 # plot_spectrogram(np_spec)
+# import IPython
+
+# max min and mean duration of a word/char
+def eeg_word_duration_stat():
+    # 0.06 1.21 0.29759269823160295 0.15984597761034613
+    word_time_df = pd.read_csv('../word_s1.csv')
+    start_time = np.array(word_time_df.iloc[:,1])
+    end_time = np.array(word_time_df.iloc[:,2])
+    words = word_time_df.iloc[:,0]
+    dur = (end_time - start_time) /100
+    return (dur.min(),dur.max(),dur.mean(),dur.std())
 
 
 def mask_spec(height, width, num_seg, ratio, spec, method=0):
@@ -92,7 +103,7 @@ def wav_2_spec(filename, audio_name, mel_args, win_len, hop_size, audio_dur = 60
     num_spec = int((audio_dur*1000 - win_len) // hop_size + 1)
     print(num_spec)
     seg_sample_size = sample_rate * win_len // 1000
-    start_loc = 0
+    start_loc = 4764
     # spectrogram = None
     for i in range(start_loc, num_spec):
         s_audio = audio[i*hop_size*sample_rate//1000:i*hop_size*sample_rate//1000+seg_sample_size]
@@ -101,7 +112,7 @@ def wav_2_spec(filename, audio_name, mel_args, win_len, hop_size, audio_dur = 60
         # n_stft = n_stft = int((1024//2) + 1)
         spectrogram = mel_spec_transform(s_audio)
         imag_name = audio_name + '_' + str(i) + '.tiff'
-        imag_path = '/mnt/nvme-ssd/hliuco/Documents/data/BISS/images/spectrogram/' + 'male_s4' +'/'+ imag_name
+        imag_path = '/scratch/ResearchGroups/lt_jixingli/honghaoliu/BISS/images/spec/' + 'female_s1_1s' +'/'+ imag_name
         # imsave(imag_path, spectrogram)
         img = Image.fromarray(spectrogram.numpy())
         img.save(imag_path)
@@ -116,9 +127,9 @@ def spec_2_wav(spectrogram, inv_mel_args, g_mel_args):
     return waveform
 
 def w2s_demo():
-    filename = '/home/hliuco/Documents/BISS/data/audio/male_s4_600.wav'
-    audio_name = 'male_s4'
-    spec_win_len = 5000
+    filename = '/home/honghliu/Documents/Project/BISR/BISS/data/audio/female_s1.wav'
+    audio_name = 'female_s1'
+    spec_win_len = 1000
     hop_size = 100
     audio_dur = 600
     mel_args = {
@@ -318,6 +329,55 @@ def split_spec_dataset(spec_num, hop_size, win_size=50):
     df_test.to_csv('data/test_spec_idx_tiff.csv', index=False)
     df_zero_look.to_csv('data/zerolook_spec_idx_tiff.csv', index=False)
 
+def all_split_spec_dataset(spec_num, hop_size, win_size=50, num_subj=50):
+    # spec_num = 5991
+    # replace subj 3 by subj 51
+    num_zero_look = 591
+    remain = spec_num - num_zero_look
+    num_train = int(remain * 0.8)
+    num_val = int(remain * 0.1)
+    num_test = int(remain * 0.1)
+    idx = np.arange(remain)
+    np.random.shuffle(idx)
+    train_idx = idx[:num_train]
+    val_idx = idx[num_train:num_val+num_train]
+    test_idx = idx[num_val+num_train:]
+
+    df_train = pd.DataFrame(columns=['eeg_idx','spec_dir','spec_name','subj'])
+    df_val = pd.DataFrame(columns=['eeg_idx','spec_dir','spec_name','subj'])
+    df_test = pd.DataFrame(columns=['eeg_idx','spec_dir','spec_name','subj'])
+    df_zero_look = pd.DataFrame(columns=['eeg_idx','spec_dir','spec_name','subj'])
+
+    spec_dir_2 = 'male_s4'
+    spec_dir_1 = 'female_s1'
+    for s_id in range(num_subj): ###
+        for i,idx in enumerate(train_idx):
+            coch_name_1 = 'female_s1_' + str(idx) + '.tiff'
+            coch_name_2 = 'male_s4_' + str(idx) + '.tiff'
+            df_train.loc[len(df_train.index)] = [idx * hop_size, spec_dir_1, coch_name_1, s_id]     
+            df_train.loc[len(df_train.index)] = [idx * hop_size, spec_dir_2, coch_name_2, s_id] 
+        for i,idx in enumerate(val_idx):
+            coch_name_1 = 'female_s1_' + str(idx) + '.tiff'
+            coch_name_2 = 'male_s4_' + str(idx) + '.tiff'
+            df_val.loc[len(df_val.index)] = [idx*hop_size, spec_dir_1, coch_name_1, s_id]     
+            df_val.loc[len(df_val.index)] = [idx*hop_size, spec_dir_2, coch_name_2, s_id] 
+        for i,idx in enumerate(test_idx):
+            coch_name_1 = 'female_s1_' + str(idx) + '.tiff'
+            coch_name_2 = 'male_s4_' + str(idx) + '.tiff'
+            df_test.loc[len(df_test.index)] = [idx*hop_size, spec_dir_1, coch_name_1, s_id]     
+            df_test.loc[len(df_test.index)] = [idx*hop_size, spec_dir_2, coch_name_2, s_id]
+        start_idx = remain + win_size
+        for idx in range(start_idx, spec_num):
+            coch_name_1 = 'female_s1_' + str(idx) + '.tiff'
+            coch_name_2 = 'male_s4_' + str(idx) + '.tiff'
+            df_zero_look.loc[len(df_zero_look.index)] = [idx*hop_size, spec_dir_1, coch_name_1, s_id]     
+            df_zero_look.loc[len(df_zero_look.index)] = [idx*hop_size, spec_dir_2, coch_name_2, s_id]
+
+    df_train.to_csv('data/train_spec_idx_tiff.csv', index=False)
+    df_val.to_csv('data/val_spec_idx_tiff.csv', index=False)
+    df_test.to_csv('data/test_spec_idx_tiff.csv', index=False)
+    df_zero_look.to_csv('data/zerolook_spec_idx_tiff.csv', index=False)
+
 def merge_fm(subj_id):
     female_eeg_data = np.load("data/eeg_data/subj"+str(subj_id)+"_single_f.npy").T[:60000]
     male_eeg_data = np.load("data/eeg_data/subj"+str(subj_id)+"_single_m.npy").T[:60000]
@@ -325,7 +385,8 @@ def merge_fm(subj_id):
     np.save("data/eeg_data/subj"+str(subj_id)+"_eeg_data.npy",eeg_data)
 
 if __name__ == '__main__':
-    w2s_demo()
+    # w2s_demo()
     # split_spec_dataset(5951,10)
+    all_split_spec_dataset(5991, 10)
     # merge_fm(2)
     # merge_fm(4)

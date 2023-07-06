@@ -11,80 +11,6 @@ from torch.utils.data import Dataset
 import warnings
 warnings.filterwarnings("ignore")
 
-# class coch_eigen_set(Dataset):
-#     """eeg coch eigen vector dataset."""
-
-#     def __init__(self, eeg_file, coch_img_file, data_dir='./data/images/', eeg_merge_size=30, eeg_hop_size = 1, transform=None):
-#         """
-#         Args:
-#             eeg_file (string): Paht to eeg data - list of np array
-#             coch_eigen_np_file (string): Path to coch_eigen_vector data - numpy array
-#             eeg_merge_size (int): merge eeg_merge_size eeg data vectors to a vector
-#             transform (callable, optional): Optional transform to be applied on a sample.
-#         """
-
-#         # print(coch_eigen_np_file)
-#         self.data_dir = data_dir
-#         self.coch_imgs = pd.read_csv(coch_img_file)
-#         self.eeg_data = np.load(eeg_file)
-#         self.eeg_merge_size = eeg_merge_size
-#         self.hop_size = eeg_hop_size
-#         # self.eeg_data =  self.eeg_data.reshape(-1,self.eeg_data.shape[-1]*eeg_merge_size)
-#         # self.coch_eigen_data = np.load(coch_eigen_np_file)
-#         # self.coch_eigen_data = self.generate_eigen_dataset(self.coch_eigen_data)
-#         self.transform = transform
-
-#     def __len__(self):
-#         return len(self.coch_imgs)
-
-#     def __getitem__(self, idx):
-#         if torch.is_tensor(idx):
-#             idx = idx.tolist()
-        
-#         # data
-#         start_pos = self.coch_imgs.iloc[idx, 0]
-#         end_pos = start_pos + self.eeg_merge_size
-#         eeg = self.eeg_data[start_pos:end_pos].reshape(-1,self.eeg_data.shape[-1]*self.eeg_merge_size)
-#         eeg = np.squeeze(eeg)
-#         eeg = torch.tensor(eeg,dtype=torch.float32)
-
-#         # target
-#         img_name = os.path.join(self.data_dir, self.coch_imgs.iloc[idx, 1],
-#                                 self.coch_imgs.iloc[idx, 2])
-#         image = io.imread(img_name,as_gray=True)
-
-#         # eigen
-#         eigen_values, eigen_vectors = np.linalg.eig(image)
-#         sum_v = np.multiply(eigen_values,eigen_vectors).sum(axis=1)
-#         nor_factor =  np.linalg.norm(sum_v)
-#         unit_v = sum_v / nor_factor
-#         coch_eigen_vector = np.append(unit_v,np.exp(-nor_factor-1))
-#         coch_eigen_vector = torch.tensor(coch_eigen_vector,dtype=torch.float32)
-
-#         if self.transform:
-#             eeg = self.transform(eeg)
-#             coch_eigen_vector = self.transform(coch_eigen_vector)
-        
-#         sample = [eeg, coch_eigen_vector]
-#         # sample = {'eeg_data': eeg, 'coch_eigen': coch_eigen_vector}
-
-
-#         return sample
-
-#     def generate_eigen_dataset(self, coch_images):
-#         """
-#         coch_images (numpy): coch images .npy
-#         """
-        
-#         eigen_values, eigen_vectors = np.linalg.eig(coch_images)
-#         y = np.empty((0,coch_images.shape[1]+1))
-#         for i in range(len(eigen_values)):
-#             sum_v = np.multiply(eigen_values[i],eigen_vectors[i]).sum(axis=1)
-#             nor_factor =  np.linalg.norm(sum_v)
-#             unit_v = sum_v / nor_factor
-#             y = np.append(y,[np.append(unit_v,np.exp(-nor_factor-1))], axis=0)
-#             # y = np.append(y,[sum_v], axis=0)
-#         return y
 
 class coch_set(Dataset):
     """eeg coch dataset."""
@@ -176,3 +102,39 @@ class coch_set(Dataset):
             # y = np.append(y,[sum_v], axis=0)
         return y
 
+
+#### revise
+class NLEDataset(torch.utils.data.Dataset):
+    def __init__(self, eeg_file, captions, tokenizer, eeg_merge_size=30, eeg_hop_size = 1, output_type = 0, transforms = None):
+        """
+        image_filenames and cpations must have the same length; so, if there are
+        multiple captions for each image, the image_filenames must have repetitive
+        file names 
+        """
+
+        self.eeg_data = np.load(eeg_file)
+        self.eeg_merge_size = eeg_merge_size
+        self.hop_size = eeg_hop_size
+        self.captions = list(captions)
+        self.encoded_captions = tokenizer(
+            list(captions), padding=True, truncation=True, max_length=CFG.max_length
+        )
+        self.transforms = transforms
+
+    def __getitem__(self, idx):
+        item = {
+            key: torch.tensor(values[idx])
+            for key, values in self.encoded_captions.items()
+        }
+
+        image = cv2.imread(f"{CFG.image_path}/{self.image_filenames[idx]}")
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = self.transforms(image=image)['image']
+        item['image'] = torch.tensor(image).permute(2, 0, 1).float()
+        item['caption'] = self.captions[idx]
+
+        return item
+
+
+    def __len__(self):
+        return len(self.captions)
