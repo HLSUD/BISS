@@ -1,2 +1,2 @@
 from .utils import *
-from .egg_dataset import *
+from .eeg_dataset import *

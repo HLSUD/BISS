@@ -1,5 +1,4 @@
 import sys
-# print(sys.path)
 import models.utils as ut
 import torch
 import torch.nn as nn
@@ -24,7 +23,9 @@ class PatchEmbed1D(nn.Module):
         B, C, V = x.shape # batch, channel, voxels
         # assert V == self.num_voxels, \
         #     f"Input fmri length ({V}) doesn't match model ({self.num_voxels})."
-        x = self.proj(x).transpose(1, 2).contiguous() # put embed_dim at the last dimension
+        x = self.proj(x)
+        x = x.transpose(1, 2).contiguous()
+        # x = self.proj(x).transpose(1, 2).contiguous() # put embed_dim at the last dimension
         return x
 
 class MAEforEEG(nn.Module):
@@ -305,6 +306,7 @@ class MAEforEEG(nn.Module):
     def forward(self, eeg, img_features=None, valid_idx=None, mask_ratio=0.75):
         # latent = self.forward_encoder(imgs, mask_ratio)
         latent, mask, ids_restore = self.forward_encoder(eeg, mask_ratio)
+        # print(latent.shape)
             # print(x)
         # print(latent.shape)
         # # print(mask)
@@ -451,21 +453,28 @@ class mapping(nn.Module):
 
 
 if __name__ == '__main__':
+    from torchinfo import summary
+    model = MAEforEEG(time_len=512, patch_size=4, embed_dim=1024, in_chans=128,
+                 depth=24, num_heads=16, decoder_embed_dim=512, 
+                 decoder_depth=8, decoder_num_heads=16).to("cuda")
+    summary(model, input_size=(16,128,512))
+
+# if __name__ == '__main__':
     # mae = MAEforEEG(time_len=512)
     # mae.forward_encoder(input,0.5)
     # print(encoder)
-    input = torch.randn(2,128,512)
+    # input = torch.randn(2,128,512)
     # loss = mae(input)
     # print(input[:,:,0:4])
     # print(input.transpose(1,2)[:,0:4,:])
     # print(mae.patchify(input.transpose(1,2))[:,0,:])
     # print(loss)
-    encoder = eeg_encoder()
-    out = encoder(input)
-    print(out.shape)
-    clss = classify_network2()
-    pre_cls = clss(out)
-    print(pre_cls.shape)
+    # encoder = eeg_encoder()
+    # out = encoder(input)
+    # print(out.shape)
+    # clss = classify_network2()
+    # pre_cls = clss(out)
+    # print(pre_cls.shape)
     # x, mask, ids_restore = mae.forward_encoder(input,0.75)
     # # pred = mae.forward_decoder(latent, ids_restore)
 

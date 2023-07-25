@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 import wandb
 import copy
 
-from config import Config_MBM_EEG
-from models.eeg_dataset_v2 import eeg_pretrain_dataset
+from config.config import Config_MBM_EEG
+from models.eeg_dataset import eeg_pretrain_dataset
 from models.NN.eeg_mae import MAEforEEG
 from models.eeg_mae_trainer import train_one_epoch
 from models.eeg_mae_trainer import NativeScalerWithGradNormCount as NativeScaler
@@ -21,12 +21,14 @@ from models.utils import save_model
 os.environ["WANDB_START_METHOD"] = "thread"
 os.environ['WANDB_DIR'] = "."
 
+wandb.login()
+
 class wandb_logger:
     def __init__(self, config):
         wandb.init(
                     project="nle",
                     anonymous="allow",
-                    group='xxx',
+                    group='kruph',
                     config=config,
                     reinit=True)
 
@@ -53,7 +55,7 @@ class wandb_logger:
         wandb.finish(quiet=True)
 
 def get_args_parser():
-    parser = argparse.ArgumentParser('MBM pre-training for fMRI', add_help=False)
+    parser = argparse.ArgumentParser('MBM pre-training for EEG', add_help=False)
     
     # Training Parameters
     parser.add_argument('--lr', type=float)
@@ -123,7 +125,7 @@ def main(config):
     # create dataset and dataloader
     ### check the dataset setting
     ### fmri transform ??
-    data_path = "dataset path"
+    data_path = "data/eeg_data/"
     dataset_pretrain = eeg_pretrain_dataset(path=data_path)
    
     print(f'Dataset size: {len(dataset_pretrain)}\n Time len: {dataset_pretrain.data_len}')
@@ -144,7 +146,7 @@ def main(config):
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model = DistributedDataParallel(model, device_ids=[config.local_rank], output_device=config.local_rank, find_unused_parameters=config.use_nature_img_loss)
 
-    param_groups = optim_factory.add_weight_decay(model, config.weight_decay)
+    param_groups = optim_factory.param_groups_weight_decay(model, config.weight_decay)
     optimizer = torch.optim.AdamW(param_groups, lr=config.lr, betas=(0.9, 0.95))
     print(optimizer)
     loss_scaler = NativeScaler()
@@ -171,7 +173,8 @@ def main(config):
             save_model(config, ep, model_without_ddp, optimizer, loss_scaler, os.path.join(output_path,'checkpoints'))
             # plot figures
             plot_recon_figures(model, device, dataset_pretrain, output_path, 5, config, logger, model_without_ddp)
-            
+        
+
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
@@ -273,8 +276,17 @@ def update_config(args, config):
 
 
 if __name__ == '__main__':
+    
     args = get_args_parser()
     args = args.parse_args()
     config = Config_MBM_EEG()
     config = update_config(args, config)
+    run = wandb.init(
+    # Set the project where this run will be logged
+    project="nle",
+    # Track hyperparameters and run metadata
+    config={
+        "learning_rate": config.lr,
+        "epochs": config.num_epoch,
+    })
     main(config)

@@ -31,7 +31,7 @@ class u_net(nn.Module):
         super(u_net, self).__init__()
         factor = 2 if bilinear else 1
 
-        self.fc1 = nn.Linear(input_size,64*64*channels) # -> transform to (256,256)
+        self.fc1 = nn.Linear(input_size,64*64*2) # -> transform to (256,256)
 
         # self.uflatten = nn.Unflatten(1, torch.Size([channels, 64, 64]))
         self.uflatten = nn.Unflatten(1, torch.Size([2, 64, 64]))

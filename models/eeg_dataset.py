@@ -104,8 +104,8 @@ class coch_set(Dataset):
             # y = np.append(y,[sum_v], axis=0)
         return y
 
-
-#### revise
+# ------------------------------------------------------------------------------
+#### Contrastive
 class NLEDataset(torch.utils.data.Dataset):
     def __init__(self, eeg_file, captions, tokenizer, eeg_merge_size=30, eeg_hop_size = 1, output_type = 0, transforms = None):
         """
@@ -141,6 +141,7 @@ class NLEDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.captions)
 
+# -----------------------------------------------------------
 # MAE
 def file_ext(name: Union[str, Path]) -> str:
     return str(name).split('.')[-1]
@@ -150,26 +151,36 @@ def is_npy_ext(fname: Union[str, Path]) -> bool:
     return f'{ext}' == 'npy'# type: ignore
 
 class eeg_pretrain_dataset(Dataset):
-    def __init__(self, path='../dreamdiffusion/datasets/mne_data/'):
+    def __init__(self, path='./data/eeg_data/'):
         super(eeg_pretrain_dataset, self).__init__()
         data = []
         images = []
         ## get input path/ data arrays
         self.input_paths = [str(f) for f in sorted(Path(path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
-
+        print(self.input_paths)
         assert len(self.input_paths) != 0, 'No data found'
         ### length and channels
         self.data_len  = 512
         self.data_chan = 128
 
+        self.win_size = 500
+        self.hop_size = 10
+        self.num_pitchs = (60000 - self.win_size) // 10 + 1
+
     def __len__(self):
-        return len(self.input_paths)
+        return len(self.input_paths)*self.num_pitchs
     
     def __getitem__(self, index):
-        data_path = self.input_paths[index]
+        eeg_idx = index // self.num_pitchs
+        inner_idx = index - eeg_idx * self.num_pitchs
+        data_path = self.input_paths[eeg_idx]
 
-        data = np.load(data_path)
-
+        # print(index,eeg_idx)
+        eeg_data = np.load(data_path)
+        # print(inner_idx)
+        # print(eeg_data.shape)
+        data = eeg_data[:,inner_idx:(inner_idx+self.win_size)]
+        # print(data.shape)
         if data.shape[-1] > self.data_len: 
             idx = np.random.randint(0, int(data.shape[-1] - self.data_len)+1)
 
@@ -197,3 +208,6 @@ class eeg_pretrain_dataset(Dataset):
         # torch.tensor()
         ret = torch.from_numpy(ret).float()
         return {'eeg': ret } #,
+
+if __name__ == '__main__':
+    eeg_pre = eeg_pretrain_dataset()

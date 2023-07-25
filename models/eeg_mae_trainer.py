@@ -1,8 +1,9 @@
 ### Ref: DreamDiff https://github.com/bbaaii/DreamDiffusion/tree/main/code/sc_mbm
 import math, sys
 import torch
+import wandb
 import models.utils as ut
-from torch._six import inf
+from torch import inf
 import numpy as np
 import time
 
@@ -115,6 +116,8 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
 
         total_loss.append(loss_value)
         total_cor.append(cor)
+
+        wandb.log({"loss": loss_value, "correlation": cor})
         if device == torch.device('cuda:0'):
             lr = optimizer.param_groups[0]["lr"]
             print('train_loss_step:', np.mean(total_loss), 'lr:', lr, 'cor', np.mean(total_cor))
