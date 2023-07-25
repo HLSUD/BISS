@@ -302,9 +302,9 @@ class MAEforEEG(nn.Module):
         loss = (loss * mask).sum() / mask.sum()  if mask.sum() != 0 else (loss * mask).sum() # mean loss on removed patches
         return loss
 
-    def forward(self, imgs, img_features=None, valid_idx=None, mask_ratio=0.75):
+    def forward(self, eeg, img_features=None, valid_idx=None, mask_ratio=0.75):
         # latent = self.forward_encoder(imgs, mask_ratio)
-        latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
+        latent, mask, ids_restore = self.forward_encoder(eeg, mask_ratio)
             # print(x)
         # print(latent.shape)
         # # print(mask)
@@ -317,7 +317,7 @@ class MAEforEEG(nn.Module):
         # pred = pred
         # print(pred.shape)
         # mask=None
-        loss = self.forward_loss(imgs, pred, mask)
+        loss = self.forward_loss(eeg, pred, mask)
         # print(self.unpatchify(pred.transpose(1,2)).shape)
 
         if self.use_nature_img_loss and img_features is not None:

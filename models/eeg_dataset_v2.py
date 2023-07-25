@@ -106,14 +106,15 @@ def is_npy_ext(fname: Union[str, Path]) -> bool:
     return f'{ext}' == 'npy'# type: ignore
 
 class eeg_pretrain_dataset(Dataset):
-    def __init__(self, path='../dreamdiffusion/datasets/mne_data/', roi='VC', patch_size=16, transform=identity, aug_times=2, 
-                num_sub_limit=None, include_kam=False, include_hcp=True):
+    def __init__(self, path='../dreamdiffusion/datasets/mne_data/'):
         super(eeg_pretrain_dataset, self).__init__()
         data = []
         images = []
+        ## get input path/ data arrays
         self.input_paths = [str(f) for f in sorted(Path(path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
 
         assert len(self.input_paths) != 0, 'No data found'
+        ### length and channels
         self.data_len  = 512
         self.data_chan = 128
 
@@ -125,17 +126,17 @@ class eeg_pretrain_dataset(Dataset):
 
         data = np.load(data_path)
 
-        if data.shape[-1] > self.data_len:
+        if data.shape[-1] > self.data_len: 
             idx = np.random.randint(0, int(data.shape[-1] - self.data_len)+1)
 
             data = data[:, idx: idx+self.data_len]
-        else:
+        else: # interp1d
             x = np.linspace(0, 1, data.shape[-1])
             x2 = np.linspace(0, 1, self.data_len)
             f = interp1d(x, data)
             data = f(x2)
         ret = np.zeros((self.data_chan, self.data_len))
-        if (self.data_chan > data.shape[-2]):
+        if (self.data_chan > data.shape[-2]): # replicate
             for i in range((self.data_chan//data.shape[-2])):
 
                 ret[i * data.shape[-2]: (i+1) * data.shape[-2], :] = data

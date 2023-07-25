@@ -12,11 +12,11 @@ import wandb
 import copy
 
 from config import Config_MBM_EEG
-from dataset import eeg_pretrain_dataset
-from sc_mbm.mae_for_eeg import MAEforEEG
-from sc_mbm.trainer import train_one_epoch
-from sc_mbm.trainer import NativeScalerWithGradNormCount as NativeScaler
-from sc_mbm.utils import save_model
+from models.eeg_dataset_v2 import eeg_pretrain_dataset
+from models.NN.eeg_mae import MAEforEEG
+from models.eeg_mae_trainer import train_one_epoch
+from models.eeg_mae_trainer import NativeScalerWithGradNormCount as NativeScaler
+from models.utils import save_model
 
 os.environ["WANDB_START_METHOD"] = "thread"
 os.environ['WANDB_DIR'] = "."
@@ -24,9 +24,9 @@ os.environ['WANDB_DIR'] = "."
 class wandb_logger:
     def __init__(self, config):
         wandb.init(
-                    project="dreamdiffusion",
+                    project="nle",
                     anonymous="allow",
-                    group='stageA_sc-mbm',
+                    group='xxx',
                     config=config,
                     reinit=True)
 
@@ -94,12 +94,12 @@ def create_readme(config, path):
     with open(os.path.join(path, 'README.md'), 'w+') as f:
         print(config.__dict__, file=f)
 
-def fmri_transform(x, sparse_rate=0.2):
-    # x: 1, num_voxels
-    x_aug = copy.deepcopy(x)
-    idx = np.random.choice(x.shape[0], int(x.shape[0]*sparse_rate), replace=False)
-    x_aug[idx] = 0
-    return torch.FloatTensor(x_aug)
+# def fmri_transform(x, sparse_rate=0.2):
+#     # x: 1, num_voxels
+#     x_aug = copy.deepcopy(x)
+#     idx = np.random.choice(x.shape[0], int(x.shape[0]*sparse_rate), replace=False)
+#     x_aug[idx] = 0
+#     return torch.FloatTensor(x_aug)
 
 def main(config):
     # print('num of gpu:')
@@ -121,9 +121,10 @@ def main(config):
     np.random.seed(config.seed)
 
     # create dataset and dataloader
-    dataset_pretrain = eeg_pretrain_dataset(path='../dreamdiffusion/datasets/mne_data/', roi=config.roi, patch_size=config.patch_size,
-                transform=fmri_transform, aug_times=config.aug_times, num_sub_limit=config.num_sub_limit, 
-                include_kam=config.include_kam, include_hcp=config.include_hcp)
+    ### check the dataset setting
+    ### fmri transform ??
+    data_path = "dataset path"
+    dataset_pretrain = eeg_pretrain_dataset(path=data_path)
    
     print(f'Dataset size: {len(dataset_pretrain)}\n Time len: {dataset_pretrain.data_len}')
     sampler = torch.utils.data.DistributedSampler(dataset_pretrain, rank=config.local_rank) if torch.cuda.device_count() > 1 else None 
@@ -136,8 +137,7 @@ def main(config):
     model = MAEforEEG(time_len=dataset_pretrain.data_len, patch_size=config.patch_size, embed_dim=config.embed_dim,
                     decoder_embed_dim=config.decoder_embed_dim, depth=config.depth, 
                     num_heads=config.num_heads, decoder_num_heads=config.decoder_num_heads, mlp_ratio=config.mlp_ratio,
-                    focus_range=config.focus_range, focus_rate=config.focus_rate, 
-                    img_recon_weight=config.img_recon_weight, use_nature_img_loss=config.use_nature_img_loss)   
+                    focus_range=config.focus_range, focus_rate=config.focus_rate)   
     model.to(device)
     model_without_ddp = model
     if torch.cuda.device_count() > 1:
@@ -157,15 +157,6 @@ def main(config):
     print('Start Training the EEG MAE ... ...')
     img_feature_extractor = None
     preprocess = None
-    if config.use_nature_img_loss:
-        from torchvision.models import resnet50, ResNet50_Weights
-        from torchvision.models.feature_extraction import create_feature_extractor
-        weights = ResNet50_Weights.DEFAULT
-        preprocess = weights.transforms()
-        m = resnet50(weights=weights)   
-        img_feature_extractor = create_feature_extractor(m, return_nodes={f'layer2': 'layer2'}).to(device).eval()
-        for param in img_feature_extractor.parameters():
-            param.requires_grad = False
 
     for ep in range(config.num_epoch):
         

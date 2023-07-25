@@ -6,7 +6,9 @@ import numpy as np
 from skimage import io
 from PIL import Image
 from torch.utils.data import Dataset
-
+from pathlib import Path
+from scipy.interpolate import interp1d
+from typing import Callable, Optional, Tuple, Union
 # Ignore warnings
 import warnings
 warnings.filterwarnings("ignore")
@@ -138,3 +140,60 @@ class NLEDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.captions)
+
+# MAE
+def file_ext(name: Union[str, Path]) -> str:
+    return str(name).split('.')[-1]
+
+def is_npy_ext(fname: Union[str, Path]) -> bool:
+    ext = file_ext(fname).lower()
+    return f'{ext}' == 'npy'# type: ignore
+
+class eeg_pretrain_dataset(Dataset):
+    def __init__(self, path='../dreamdiffusion/datasets/mne_data/'):
+        super(eeg_pretrain_dataset, self).__init__()
+        data = []
+        images = []
+        ## get input path/ data arrays
+        self.input_paths = [str(f) for f in sorted(Path(path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
+
+        assert len(self.input_paths) != 0, 'No data found'
+        ### length and channels
+        self.data_len  = 512
+        self.data_chan = 128
+
+    def __len__(self):
+        return len(self.input_paths)
+    
+    def __getitem__(self, index):
+        data_path = self.input_paths[index]
+
+        data = np.load(data_path)
+
+        if data.shape[-1] > self.data_len: 
+            idx = np.random.randint(0, int(data.shape[-1] - self.data_len)+1)
+
+            data = data[:, idx: idx+self.data_len]
+        else: # interp1d
+            x = np.linspace(0, 1, data.shape[-1])
+            x2 = np.linspace(0, 1, self.data_len)
+            f = interp1d(x, data)
+            data = f(x2)
+        ret = np.zeros((self.data_chan, self.data_len))
+        if (self.data_chan > data.shape[-2]): # replicate
+            for i in range((self.data_chan//data.shape[-2])):
+
+                ret[i * data.shape[-2]: (i+1) * data.shape[-2], :] = data
+            if self.data_chan % data.shape[-2] != 0:
+
+                ret[ -(self.data_chan%data.shape[-2]):, :] = data[: (self.data_chan%data.shape[-2]), :]
+        elif(self.data_chan < data.shape[-2]):
+            idx2 = np.random.randint(0, int(data.shape[-2] - self.data_chan)+1)
+            ret = data[idx2: idx2+self.data_chan, :]
+        # print(ret.shape)
+        elif(self.data_chan == data.shape[-2]):
+            ret = data
+        ret = ret/10 # reduce an order
+        # torch.tensor()
+        ret = torch.from_numpy(ret).float()
+        return {'eeg': ret } #,
