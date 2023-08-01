@@ -53,10 +53,15 @@ def get_grad_norm_(parameters, norm_type: float = 2.0):
 
 
 def train_one_epoch(model, data_loader, optimizer, device, epoch, 
-                        loss_scaler, log_writer=None, config=None, start_time=None, model_without_ddp=None, 
-                        img_feature_extractor=None, preprocess=None):
+                    loss_scaler, logger=None, tensorboard_writer=None,
+                    config=None, start_time=None, model_without_ddp=None, 
+                    img_feature_extractor=None, preprocess=None):
     model.train(True)
     optimizer.zero_grad()
+
+    if tensorboard_writer is not None:
+        print('log_dir: {}'.format(tensorboard_writer.log_dir))
+
     total_loss = []
     total_cor = []
     accum_iter = config.accum_iter
@@ -101,15 +106,7 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
         # cal the cor
         pred = pred.to('cpu').detach()
         samples = samples.to('cpu').detach()
-        # pred = pred.transpose(1,2) #model_without_ddp.unpatchify(pred)
         pred = model_without_ddp.unpatchify(pred)
-        # print(pred.shape)
-        # print(samples.shape)
-        # for p, s in zip(pred, samples):
-        #     print(p[0], s[0])
-        #     print(torch.cat([p[0].unsqueeze(0), s[0].unsqueeze(0)],axis=0))
-        #     print(torch.corrcoef(torch.cat([p[0].unsqueeze(0), s[0].unsqueeze(0)],axis=0)))
-        #     print(torch.corrcoef(torch.cat([p[0].unsqueeze(0), s[0].unsqueeze(0)],axis=0))[0,1])
             
         cor = torch.mean(torch.tensor([torch.corrcoef(torch.cat([p[0].unsqueeze(0), s[0].unsqueeze(0)],axis=0))[0,1] for p, s in zip(pred, samples)])).item()
         optimizer.zero_grad()
@@ -117,18 +114,21 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
         total_loss.append(loss_value)
         total_cor.append(cor)
 
-        wandb.log({"loss": loss_value, "correlation": cor})
+        # wandb.log({"loss": loss_value, "correlation": cor})
         if device == torch.device('cuda:0'):
             lr = optimizer.param_groups[0]["lr"]
             print('train_loss_step:', np.mean(total_loss), 'lr:', lr, 'cor', np.mean(total_cor))
+            tensorboard_writer.add_scalar('train_loss', np.mean(total_loss))
+            tensorboard_writer.add_scalar('lr', lr)
+            tensorboard_writer.add_scalar('cor', np.mean(total_cor))
 
-    if log_writer is not None:
+    if logger is not None:
         lr = optimizer.param_groups[0]["lr"]
-        log_writer.log('train_loss_step', np.mean(total_loss), step=epoch)
-        log_writer.log('lr', lr, step=epoch)
-        log_writer.log('cor', np.mean(total_cor), step=epoch)
+        logger.log('train_loss_step', np.mean(total_loss), step=epoch)
+        logger.log('lr', lr, step=epoch)
+        logger.log('cor', np.mean(total_cor), step=epoch)
         if start_time is not None:
-            log_writer.log('time (min)', (time.time() - start_time)/60.0, step=epoch)
+            logger.log('time (min)', (time.time() - start_time)/60.0, step=epoch)
     if config.local_rank == 0:        
         print(f'[Epoch {epoch}] loss: {np.mean(total_loss)}')
 

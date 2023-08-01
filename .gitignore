@@ -9,6 +9,8 @@ data/data
 data/audio
 data/*
 results
+events*
+*.npy
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
