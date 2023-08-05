@@ -4,7 +4,15 @@ import torch.nn.functional as F
 from torch import nn
 from transformers import AutoModel
 from transformers import MT5Tokenizer, GPT2LMHeadModel
+
+import torchaudio
+from datasets import load_dataset
+from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 from .neuro_transformer import NeuroTransformer
+from .eeg_mae import eeg_encoder
+"""
+1. implememnt eeg_encoder as neuro_encoder for contrastive learning 
+"""
 
 class Projection(nn.Module):
     def __init__(self, d_in: int, d_out: int, p: float=0.5) -> None:
@@ -37,6 +45,21 @@ class NeuroEncoder(nn.Module):
         neuro_embeddings = self.projection(neuro_features)
         return neuro_embeddings
 
+class NeuroMAE(nn.Module):
+    def __init__(self, channels: int, timepoints: int, embed_dim: int, depth: int,
+            heads: int, out_dims: int) -> None:
+        super().__init__()
+
+        self.base = eeg_encoder(timepoints, 4, embed_dim, channels, depth, heads)
+
+
+        self.projection = Projection(embed_dim, out_dims) ### may have errors
+
+    def forward(self, x):
+        neuro_features = self.base(x)
+        neuro_embeddings = self.projection(neuro_features)
+        return neuro_embeddings
+
 class TextEncoder(nn.Module):
     def __init__(self, text_model: str, transformer_embed_dim: int, out_dims: int, lang='eng') -> None:
         super().__init__()
@@ -54,16 +77,61 @@ class TextEncoder(nn.Module):
         text_embeddings = self.projection(text_features)
         return text_embeddings
 
+class AudioEncoder(nn.model):
+    def __init__(self, audio_model: str, processor_model: str, transformer_embed_dim: int, out_dims: int) -> None:
+        """
+            Wav2Vec_2 zh as audioencoder
+            audio_model default - "ydshieh/wav2vec2-large-xlsr-53-chinese-zh-cn-gpt"
+            process_model default - "ydshieh/wav2vec2-large-xlsr-53-chinese-zh-cn-gpt"
+        """
+        super().__init__()
+        
+        self.processor = Wav2Vec2Processor.from_pretrained(processor_model)
+        self.base = Wav2Vec2ForCTC.from_pretrained(audio_model)
+        
+        self.projection = Projection(transformer_embed_dim, out_dims)
+        # self.target_token_idx = 0
+
+    def speech_file_to_array_fn(batch):
+        resampler = torchaudio.transforms.Resample(48_000, 16_000)
+        speech_array, sampling_rate = torchaudio.load(batch["path"])
+        batch["speech"] = resampler(speech_array).squeeze().numpy()
+        return batch
+
+    def forward(self, x):
+        inputs = self.processor(x, sampling_rate=16_000, return_tensors="pt", padding=True)
+
+        audio_features = self.base(inputs.input_values, attention_mask=inputs.attention_mask)[0]
+       
+        # text_features = text_features[:, self.target_token_idx, :]  # get CLS token output
+        audio_embeddings = self.projection(audio_features)
+        return audio_embeddings
+
+    def speech_recognition(self):
+        test_dataset = load_dataset("common_voice", "zh-CN", split="test")
+        test_dataset = test_dataset.map(self.speech_file_to_array_fn)
+
+        inputs = self.processor(test_dataset[:2]["speech"], sampling_rate=16_000, return_tensors="pt", padding=True)
+
+        with torch.no_grad():
+            logits = self.base(inputs.input_values, attention_mask=inputs.attention_mask).logits
+
+        predicted_ids = torch.argmax(logits, dim=-1)
+        print("Prediction:", self.processor.batch_decode(predicted_ids))
+        print("Reference:", test_dataset[:2]["sentence"])
+
 class NLE(nn.Module):
     def __init__(self,
-                # audio
+                # neuro
                 channels: int,
                 timepoints: int, 
-                width: int, 
-                layers: int,
+                embed_dim: int, 
+                depth: int,
                 heads: int,
-                # text
-                text_model: str,
+                # audio
+                audio_model: str,
+                processor_model: str,
+                # text_model: str,
                 transformer_embed_dim: int,
                 # common
                 out_dims: int,
@@ -72,27 +140,27 @@ class NLE(nn.Module):
         super().__init__()
 
         
-        self.neuro_encoder = NeuroEncoder(
-            channels, timepoints, width, layers, heads, out_dims
+        self.neuro_encoder = NeuroMAE(
+            channels, timepoints, embed_dim, depth, heads, out_dims
         )
 
-        self.caption_encoder = TextEncoder(
-            text_model, transformer_embed_dim,out_dims
+        self.audio_encoder = AudioEncoder(
+            audio_model, processor_model, transformer_embed_dim,out_dims
         )
         self.temperature = temperature
         # self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
 
-    def forward(self, audio, text):
-        neuro_embeddings = self.audio_encoder(audio)
-        text_embeddings = self.caption_encoder(text)
+    def forward(self, audio, neuro):
+        audio_embeddings = self.audio_encoder(audio)
+        neuro_embeddings = self.neuro_encoder(neuro)
 
         
         # Calculating the Loss
-        logits = (text_embeddings @ neuro_embeddings.T) / self.temperature
+        logits = (audio_embeddings @ neuro_embeddings.T) / self.temperature
         neuro_similarity = neuro_embeddings @ neuro_embeddings.T
-        texts_similarity = text_embeddings @ text_embeddings.T
+        audios_similarity = audio_embeddings @ audio_embeddings.T
         targets = F.softmax(
-            (neuro_similarity + texts_similarity) / 2 * self.temperature, dim=-1
+            (neuro_similarity + audios_similarity) / 2 * self.temperature, dim=-1
         )
         texts_loss = cross_entropy(logits, targets, reduction='none')
         images_loss = cross_entropy(logits.T, targets.T, reduction='none')

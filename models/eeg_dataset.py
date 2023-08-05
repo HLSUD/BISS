@@ -179,7 +179,8 @@ class eeg_pretrain_dataset(Dataset):
         eeg_data = np.load(data_path)
         # print(inner_idx)
         # print(eeg_data.shape)
-        data = eeg_data[:,inner_idx:(inner_idx+self.win_size)]
+        start_loc = inner_idx * self.hop_size
+        data = eeg_data[:,start_loc:(start_loc+self.win_size)]
         # print(data.shape)
         if data.shape[-1] > self.data_len: 
             idx = np.random.randint(0, int(data.shape[-1] - self.data_len)+1)
