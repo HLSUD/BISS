@@ -44,6 +44,8 @@ class encoderWrapper():
         else:
             self.token_keys = ['input_ids', 'attention_mask']
 
+### REVISE !!!
+
         clap = CLAP(
             audioenc_name=args.audioenc_name,
             sample_rate=args.sampling_rate,
