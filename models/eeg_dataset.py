@@ -143,6 +143,19 @@ class NLEDataset(torch.utils.data.Dataset):
 
 # -----------------------------------------------------------
 # MAE
+abnormal_data_idx = [2,10,13,24,25,34,39,52,54,60,63,67,68,70,71,75,76,80,86,87,28,79,84]
+
+def remove_bad_data_paths(indices, root_path, input_paths):
+    for i in indices:
+        bad_paths = [root_path + 'subj' + str(i) +'_mixed_f.npy',
+                     root_path + 'subj' + str(i) +'_mixed_m.npy',
+                     root_path + 'subj' + str(i) +'_single_f.npy',
+                     root_path + 'subj' + str(i) +'_single_m.npy']
+        for bp in bad_paths:
+            if bp in input_paths:
+                input_paths.remove(bp)
+    return input_paths
+
 def file_ext(name: Union[str, Path]) -> str:
     return str(name).split('.')[-1]
 
@@ -157,15 +170,19 @@ class eeg_pretrain_dataset(Dataset):
         images = []
         ## get input path/ data arrays
         self.input_paths = [str(f) for f in sorted(Path(path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
-        print(self.input_paths)
+        # print(self.input_paths)
+        ## remove bad data path from input_path
+        self.input_paths = remove_bad_data_paths(abnormal_data_idx,path,self.input_paths)
         assert len(self.input_paths) != 0, 'No data found'
         ### length and channels
         self.data_len  = 512
         self.data_chan = 128
 
         self.win_size = 500
-        self.hop_size = 10
+        self.hop_size = 50
         self.num_pitchs = (60000 - self.win_size) // 10 + 1
+        print(len(self.input_paths))
+        print(self.num_pitchs)
 
     def __len__(self):
         return len(self.input_paths)*self.num_pitchs
