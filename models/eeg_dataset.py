@@ -164,7 +164,7 @@ def is_npy_ext(fname: Union[str, Path]) -> bool:
     return f'{ext}' == 'npy'# type: ignore
 
 class eeg_pretrain_dataset(Dataset):
-    def __init__(self, path='./data/eeg_data/'):
+    def __init__(self, path='./data/eeg_data/',hop_size = 50, win_size = 500, data_len=512, data_chan=128, time_pts=60000):
         super(eeg_pretrain_dataset, self).__init__()
         data = []
         images = []
@@ -175,12 +175,12 @@ class eeg_pretrain_dataset(Dataset):
         self.input_paths = remove_bad_data_paths(abnormal_data_idx,path,self.input_paths)
         assert len(self.input_paths) != 0, 'No data found'
         ### length and channels
-        self.data_len  = 512
-        self.data_chan = 128
+        self.data_len  = data_len
+        self.data_chan = data_chan
 
-        self.win_size = 500
-        self.hop_size = 50
-        self.num_pitchs = (60000 - self.win_size) // 10 + 1
+        self.win_size = win_size
+        self.hop_size = hop_size
+        self.num_pitchs = (time_pts - self.win_size) // self.hop_size + 1
         print(len(self.input_paths))
         print(self.num_pitchs)
 
