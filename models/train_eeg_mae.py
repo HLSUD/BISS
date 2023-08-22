@@ -197,10 +197,9 @@ def plot_recon_figures(model, device, dataset, output_path, num_figures = 5, con
         sample = next(iter(dataloader))['eeg']
         sample = sample.to(device)
         _, pred, mask = model(sample, mask_ratio=config.mask_ratio)
-        # sample_with_mask = model_without_ddp.patchify(sample.transpose(1,2))[0].to('cpu').numpy().reshape(-1, model_without_ddp.patch_size)
+        
         sample_with_mask = sample.to('cpu').squeeze(0)[0].numpy().reshape(-1, model_without_ddp.patch_size)
-        # pred = model_without_ddp.unpatchify(pred.transpose(1,2)).to('cpu').squeeze(0)[0].unsqueeze(0).numpy()
-        # sample = sample.to('cpu').squeeze(0)[0].unsqueeze(0).numpy()
+        
         pred = model_without_ddp.unpatchify(pred).to('cpu').squeeze(0)[0].numpy()
         # pred = model_without_ddp.unpatchify(model_without_ddp.patchify(sample.transpose(1,2))).to('cpu').squeeze(0)[0].numpy()
         sample = sample.to('cpu').squeeze(0)[0].numpy()

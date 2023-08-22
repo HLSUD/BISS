@@ -8,9 +8,11 @@ from PIL import Image
 from torch.utils.data import Dataset
 from pathlib import Path
 from scipy.interpolate import interp1d
+import torchaudio
 from typing import Callable, Optional, Tuple, Union
 # Ignore warnings
 import warnings
+from models.utils import smooth_signal
 warnings.filterwarnings("ignore")
 
 
@@ -104,45 +106,34 @@ class coch_set(Dataset):
             # y = np.append(y,[sum_v], axis=0)
         return y
 
-# ------------------------------------------------------------------------------
-#### Contrastive
-class NLEDataset(torch.utils.data.Dataset):
-    def __init__(self, eeg_file, captions, tokenizer, eeg_merge_size=30, eeg_hop_size = 1, output_type = 0, transforms = None):
-        """
-        image_filenames and cpations must have the same length; so, if there are
-        multiple captions for each image, the image_filenames must have repetitive
-        file names 
-        """
 
-        self.eeg_data = np.load(eeg_file)
-        self.eeg_merge_size = eeg_merge_size
-        self.hop_size = eeg_hop_size
-        self.captions = list(captions)
-        self.encoded_captions = tokenizer(
-            list(captions), padding=True, truncation=True, max_length=CFG.max_length
-        )
-        self.transforms = transforms
+def eeg_interp_repeat(data, data_chan, data_len):
+    if data.shape[-1] > data_len: 
+        idx = np.random.randint(0, int(data.shape[-1] - data_len)+1)
 
-    def __getitem__(self, idx):
-        item = {
-            key: torch.tensor(values[idx])
-            for key, values in self.encoded_captions.items()
-        }
+        data = data[:, idx: idx+data_len]
+    else: # interp1d
+        x = np.linspace(0, 1, data.shape[-1])
+        x2 = np.linspace(0, 1, data_len)
+        f = interp1d(x, data)
+        data = f(x2)
+    ret = np.zeros((data_chan, data_len))
+    if (data_chan > data.shape[-2]): # replicate
+        for i in range((data_chan//data.shape[-2])):
 
-        image = cv2.imread(f"{CFG.image_path}/{self.image_filenames[idx]}")
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = self.transforms(image=image)['image']
-        item['image'] = torch.tensor(image).permute(2, 0, 1).float()
-        item['caption'] = self.captions[idx]
+            ret[i * data.shape[-2]: (i+1) * data.shape[-2], :] = data
+        if data_chan % data.shape[-2] != 0:
 
-        return item
+            ret[ -(data_chan%data.shape[-2]):, :] = data[: (data_chan%data.shape[-2]), :]
+    elif(data_chan < data.shape[-2]):
+        idx2 = np.random.randint(0, int(data.shape[-2] - data_chan)+1)
+        ret = data[idx2: idx2+data_chan, :]
+    # print(ret.shape)
+    elif(data_chan == data.shape[-2]):
+        ret = data
+    ret = ret/10 # reduce an order
+    return ret
 
-
-    def __len__(self):
-        return len(self.captions)
-
-# -----------------------------------------------------------
-# MAE
 abnormal_data_idx = [2,10,13,24,25,34,39,52,54,60,63,67,68,70,71,75,76,80,86,87,28,79,84]
 
 def remove_bad_data_paths(indices, root_path, input_paths):
@@ -155,6 +146,72 @@ def remove_bad_data_paths(indices, root_path, input_paths):
             if bp in input_paths:
                 input_paths.remove(bp)
     return input_paths
+
+# ------------------------------------------------------------------------------
+#### Contrastive
+class NLEDataset(torch.utils.data.Dataset):
+    def __init__(self, eeg_path = './data/eeg_data/', audio_path = './data/audio_data/', hop_size = 50, win_size = 500, data_len=512, data_chan=128, time_pts=60000, freq = 100, sr = 16000, transforms = None):
+        """
+        image_filenames and cpations must have the same length; so, if there are
+        multiple captions for each image, the image_filenames must have repetitive
+        file names 
+        """
+
+        self.eeg_paths = [str(f) for f in sorted(Path(eeg_path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
+        # self.audio_paths = [str(f) for f in sorted(Path(audio_path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
+        self.audio_path = audio_path
+        ## remove bad data path from input_path
+        self.eeg_paths = remove_bad_data_paths(abnormal_data_idx,eeg_path,self.eeg_paths)
+        assert len(self.eeg_paths) != 0, 'No data found'
+        
+        ### length and channels
+        self.data_len  = data_len
+        self.data_chan = data_chan
+
+        self.win_size = win_size
+        self.hop_size = hop_size
+        self.freq = freq
+        self.sr = sr # audio sample rate
+
+        self.num_pitchs = (time_pts - self.win_size) // self.hop_size + 1
+
+        # print(len(self.input_paths))
+        print(self.num_pitchs)
+
+        self.transforms = transforms
+
+    def __getitem__(self, index):
+        eeg_idx = index // self.num_pitchs
+        inner_idx = index - eeg_idx * self.num_pitchs
+        data_path = self.input_paths[eeg_idx]
+        eeg_data = np.load(data_path)
+        # load audio
+        audio_array = None
+        if 'single_m' in data_path:
+            a_path = self.audio_path + 'male_s4.wav'
+            start_loc = inner_idx * self.hop_size / self.freq * self.sr
+            end_loc = start_loc + self.win_size / self.freq * self.sr
+            audio, sr = torchaudio.load(a_path)
+            if sr != self.sr:
+                audio = torchaudio.functional.resample(audio, orig_freq=sr, new_freq=self.sr)
+            audio_array = audio[start_loc:end_loc]
+
+        start_loc = inner_idx * self.hop_size
+        data = eeg_data[:,start_loc:(start_loc+self.win_size)]
+        
+        ret = eeg_interp_repeat(data, self.data_chan, self.data_len)
+        for i in range(data.shape[-2]):
+            ret[i] = smooth_signal(ret[i])
+        
+        ret = torch.from_numpy(ret).float()
+        return {'eeg': ret, 'audio': audio_array}
+
+
+    def __len__(self):
+        return len(self.input_paths)*self.num_pitchs
+
+# -----------------------------------------------------------
+# MAE
 
 def file_ext(name: Union[str, Path]) -> str:
     return str(name).split('.')[-1]
@@ -181,7 +238,7 @@ class eeg_pretrain_dataset(Dataset):
         self.win_size = win_size
         self.hop_size = hop_size
         self.num_pitchs = (time_pts - self.win_size) // self.hop_size + 1
-        print(len(self.input_paths))
+        # print(len(self.input_paths))
         print(self.num_pitchs)
 
     def __len__(self):
@@ -199,30 +256,9 @@ class eeg_pretrain_dataset(Dataset):
         start_loc = inner_idx * self.hop_size
         data = eeg_data[:,start_loc:(start_loc+self.win_size)]
         # print(data.shape)
-        if data.shape[-1] > self.data_len: 
-            idx = np.random.randint(0, int(data.shape[-1] - self.data_len)+1)
-
-            data = data[:, idx: idx+self.data_len]
-        else: # interp1d
-            x = np.linspace(0, 1, data.shape[-1])
-            x2 = np.linspace(0, 1, self.data_len)
-            f = interp1d(x, data)
-            data = f(x2)
-        ret = np.zeros((self.data_chan, self.data_len))
-        if (self.data_chan > data.shape[-2]): # replicate
-            for i in range((self.data_chan//data.shape[-2])):
-
-                ret[i * data.shape[-2]: (i+1) * data.shape[-2], :] = data
-            if self.data_chan % data.shape[-2] != 0:
-
-                ret[ -(self.data_chan%data.shape[-2]):, :] = data[: (self.data_chan%data.shape[-2]), :]
-        elif(self.data_chan < data.shape[-2]):
-            idx2 = np.random.randint(0, int(data.shape[-2] - self.data_chan)+1)
-            ret = data[idx2: idx2+self.data_chan, :]
-        # print(ret.shape)
-        elif(self.data_chan == data.shape[-2]):
-            ret = data
-        ret = ret/10 # reduce an order
+        ret = eeg_interp_repeat(data, self.data_chan, self.data_len)
+        for i in range(data.shape[-2]):
+            ret[i] = smooth_signal(ret[i])
         # torch.tensor()
         ret = torch.from_numpy(ret).float()
         return {'eeg': ret } #,

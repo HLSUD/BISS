@@ -3,6 +3,29 @@ import numpy as np
 import math
 import torch
 import os
+import scipy.fftpack
+from scipy.signal import savgol_filter
+
+def smooth_signal(signal, weight_threshold=100, keep_ratio=0.05, savgol=True, win=7, poly=1):
+    x_axis = np.arange(0, signal.shape[-1])
+    # to frequent domain
+    w = scipy.fftpack.rfft(signal)
+    f = scipy.fftpack.rfftfreq(signal.shape[-1], x_axis[1]-x_axis[0])
+    spectrum = w**2
+    # remove f with small value
+    cutoff_idx = spectrum < (spectrum.max()/weight_threshold)
+    if (cutoff_idx.sum() / len(cutoff_idx)) > (1-keep_ratio):
+        idx = int((1-keep_ratio)*signal.shape[-1])
+        cutoff_idx = spectrum < np.sort(spectrum)[idx]
+    w2 = w.copy()
+    w2[cutoff_idx] = 0
+    s_smooth = scipy.fftpack.irfft(w2)
+
+    # Savitzky-Golay filter
+    if savgol:
+        s_smooth = savgol_filter(s_smooth, win, poly, mode='nearest')
+    
+    return s_smooth
 
 def get_1d_sincos_pos_embed(embed_dim, length, cls_token=False):
     """

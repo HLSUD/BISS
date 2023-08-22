@@ -8,6 +8,8 @@ from transformers import MT5Tokenizer, GPT2LMHeadModel
 import torchaudio
 from datasets import load_dataset
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+from transformers import WhisperProcessor, WhisperForConditionalGeneration, WhisperModel
+from datasets import load_dataset
 from .neuro_transformer import NeuroTransformer
 from .eeg_mae import eeg_encoder
 """
@@ -78,17 +80,24 @@ class TextEncoder(nn.Module):
         return text_embeddings
 
 class AudioEncoder(nn.model):
-    def __init__(self, audio_model: str, processor_model: str, transformer_embed_dim: int, out_dims: int) -> None:
+    def __init__(self, model_name:str, audio_model: str, processor_model: str, transformer_embed_dim: int, out_dims: int, trainable: bool) -> None:
         """
             Wav2Vec_2 zh as audioencoder
-            audio_model default - "ydshieh/wav2vec2-large-xlsr-53-chinese-zh-cn-gpt"
-            process_model default - "ydshieh/wav2vec2-large-xlsr-53-chinese-zh-cn-gpt"
+            audio_model default - "ydshieh/wav2vec2-large-xlsr-53-chinese-zh-cn-gpt"/ "openai/whisper-base.en"
+            process_model default - "ydshieh/wav2vec2-large-xlsr-53-chinese-zh-cn-gpt"/ "openai/whisper-base.en"
+
+            # https://huggingface.co/models?search=openai/whisper
         """
         super().__init__()
-        
-        self.processor = Wav2Vec2Processor.from_pretrained(processor_model)
-        self.base = Wav2Vec2ForCTC.from_pretrained(audio_model)
-        
+        self.model_name = model_name
+        if model_name == 'wav2vec':
+            self.processor = Wav2Vec2Processor.from_pretrained(processor_model)
+            self.base = Wav2Vec2ForCTC.from_pretrained(audio_model)
+        elif model_name == 'whisper':
+            self.processor = WhisperProcessor.from_pretrained(processor_model)
+            self.base = WhisperModel.from_pretrained(audio_model)
+        for p in self.model.parameters():
+            p.requires_grad = trainable
         self.projection = Projection(transformer_embed_dim, out_dims)
         # self.target_token_idx = 0
 
@@ -101,13 +110,19 @@ class AudioEncoder(nn.model):
     def forward(self, x):
         inputs = self.processor(x, sampling_rate=16_000, return_tensors="pt", padding=True)
 
-        audio_features = self.base(inputs.input_values, attention_mask=inputs.attention_mask)[0]
-       
-        # text_features = text_features[:, self.target_token_idx, :]  # get CLS token output
+        if self.model_name == 'wav2vec':
+            ### encoder_last_hidden_state or last_hidden_state
+            audio_features = self.base(inputs.input_values, attention_mask=inputs.attention_mask).last_hidden_state
+        
+        elif self.model_name == 'whisper':
+            audio_features = self.base(inputs.input_features, attention_mask=inputs.attention_mask).last_hidden_state
+            # audio_features = self.base.generate(input.input_features)
+        
         audio_embeddings = self.projection(audio_features)
         return audio_embeddings
 
     def speech_recognition(self):
+        # transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
         test_dataset = load_dataset("common_voice", "zh-CN", split="test")
         test_dataset = test_dataset.map(self.speech_file_to_array_fn)
 
