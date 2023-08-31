@@ -1,6 +1,7 @@
 import os, sys
 import numpy as np
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel
 import argparse
@@ -21,7 +22,6 @@ from models.utils import save_model
 os.environ["WANDB_START_METHOD"] = "thread"
 os.environ['WANDB_DIR'] = "."
 
-wandb.login()
 
 class wandb_logger:
     def __init__(self, config):
@@ -54,6 +54,7 @@ class wandb_logger:
     def finish(self):
         wandb.finish(quiet=True)
 
+
 def get_args_parser():
     parser = argparse.ArgumentParser('MBM pre-training for EEG', add_help=False)
     
@@ -61,7 +62,11 @@ def get_args_parser():
     parser.add_argument('--lr', type=float)
     parser.add_argument('--weight_decay', type=float)
     parser.add_argument('--num_epoch', type=int)
+    parser.add_argument('--warmup_epochs', type=int)
     parser.add_argument('--batch_size', type=int)
+    parser.add_argument('--hop_size', type=int, default=10)
+    parser.add_argument('--smooth', action='store_true')
+    parser.add_argument('--add_cor_loss', action='store_true')
 
     # Model Parameters
     parser.add_argument('--mask_ratio', type=float)
@@ -72,9 +77,11 @@ def get_args_parser():
     parser.add_argument('--num_heads', type=int)
     parser.add_argument('--decoder_num_heads', type=int)
     parser.add_argument('--mlp_ratio', type=float)
+    parser.add_argument('--resume', type=str, default='')
 
     # Project setting
-    parser.add_argument('--root_path', type=str)
+    parser.add_argument('--close_wandb', action='store_true')
+    parser.add_argument('--output_path', type=str, default='')
     parser.add_argument('--seed', type=str)
     parser.add_argument('--roi', type=str)
     parser.add_argument('--aug_times', type=int)
@@ -88,20 +95,16 @@ def get_args_parser():
     
     # distributed training parameters
     parser.add_argument('--local_rank', type=int)
+
                         
     return parser
+
 
 def create_readme(config, path):
     print(config.__dict__)
     with open(os.path.join(path, 'README.md'), 'w+') as f:
         print(config.__dict__, file=f)
 
-# def fmri_transform(x, sparse_rate=0.2):
-#     # x: 1, num_voxels
-#     x_aug = copy.deepcopy(x)
-#     idx = np.random.choice(x.shape[0], int(x.shape[0]*sparse_rate), replace=False)
-#     x_aug[idx] = 0
-#     return torch.FloatTensor(x_aug)
 
 def main(config):
     # print('num of gpu:')
@@ -109,10 +112,16 @@ def main(config):
     if torch.cuda.device_count() > 1:
         torch.cuda.set_device(config.local_rank) 
         torch.distributed.init_process_group(backend='nccl')
-    output_path = os.path.join(config.root_path, 'results', 'eeg_pretrain',  '%s'%(datetime.datetime.now().strftime("%d-%m-%Y-%H-%M-%S")))
-    config.output_path = output_path
-    # logger = wandb_logger(config) if config.local_rank == 0 else None
+    assert config.output_path != '', "output_path should not be ''"
+    output_path = config.output_path
     logger = None
+
+    if config.local_rank == 0:
+        log_dir = os.path.join(config.output_path, 'log')
+        os.makedirs(log_dir, exist_ok=True)
+        tensorboard_writer = SummaryWriter(log_dir=log_dir)
+    else:
+        tensorboard_writer = None
     
     if config.local_rank == 0:
         os.makedirs(output_path, exist_ok=True)
@@ -126,7 +135,7 @@ def main(config):
     ### check the dataset setting
     ### fmri transform ??
     data_path = "data/eeg_data/"
-    dataset_pretrain = eeg_pretrain_dataset(path=data_path)
+    dataset_pretrain = eeg_pretrain_dataset(path=data_path, hop_size=config.hop_size, smooth=config.smooth)
    
     print(f'Dataset size: {len(dataset_pretrain)}\n Time len: {dataset_pretrain.data_len}')
     sampler = torch.utils.data.DistributedSampler(dataset_pretrain, rank=config.local_rank) if torch.cuda.device_count() > 1 else None 
@@ -147,6 +156,10 @@ def main(config):
         model = DistributedDataParallel(model, device_ids=[config.local_rank], output_device=config.local_rank, find_unused_parameters=config.use_nature_img_loss)
 
     param_groups = optim_factory.param_groups_weight_decay(model, config.weight_decay)
+    print("base lr: %.2e" % config.lr)
+    eff_batch_size = config.batch_size * torch.cuda.device_count()
+    config.lr = config.lr * eff_batch_size / 256
+    print("actual lr: %.2e" % config.lr)
     optimizer = torch.optim.AdamW(param_groups, lr=config.lr, betas=(0.9, 0.95))
     print(optimizer)
     loss_scaler = NativeScaler()
@@ -160,21 +173,41 @@ def main(config):
     img_feature_extractor = None
     preprocess = None
 
-    for ep in range(config.num_epoch):
-        
+    model_path = os.path.join(output_path, 'checkpoints', 'checkpoint.pth')
+    start_epoch = 0
+    if config.resume != '':
+        checkpoint = torch.load(config.resume, map_location='cpu')
+        if 'model' in checkpoint:
+            checkpoint = checkpoint['model']
+        model_without_ddp.load_state_dict(checkpoint)
+        print("Resume checkpoint %s" % config.resume)
+    elif os.path.exists(model_path):
+        checkpoint = torch.load(model_path, map_location='cpu')
+        model_without_ddp.load_state_dict(checkpoint['model'])
+        print("Resume checkpoint %s" % model_path)
+        if 'optimizer' in checkpoint and 'epoch' in checkpoint:
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            start_epoch = checkpoint['epoch'] + 1
+            if 'scaler' in checkpoint:
+                loss_scaler.load_state_dict(checkpoint['scaler'])
+            print("With optim & sched!")
+
+    print(f"Add cor_loss: {config.add_cor_loss}")
+    for ep in range(start_epoch, config.num_epoch):
+        print(f"Start Epoch: {ep}")
         if torch.cuda.device_count() > 1: 
             sampler.set_epoch(ep) # to shuffle the data at every epoch
-        cor = train_one_epoch(model, dataloader_eeg, optimizer, device, ep, loss_scaler, logger, config, start_time, model_without_ddp,
-                            img_feature_extractor, preprocess)
+        cor = train_one_epoch(
+            model, dataloader_eeg, optimizer, device, ep, loss_scaler, logger, 
+            tensorboard_writer, config, start_time, model_without_ddp,
+            img_feature_extractor, preprocess, config.add_cor_loss)
         cor_list.append(cor)
-        if (ep % 20 == 0 or ep + 1 == config.num_epoch) and config.local_rank == 0: #and ep != 0
+        if config.local_rank == 0:
             # save models
-        # if True:
-            save_model(config, ep, model_without_ddp, optimizer, loss_scaler, os.path.join(output_path,'checkpoints'))
+            save_model(config, ep, model_without_ddp, optimizer, loss_scaler, os.path.join(output_path, 'checkpoints'))
             # plot figures
             plot_recon_figures(model, device, dataset_pretrain, output_path, 5, config, logger, model_without_ddp)
         
-
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
@@ -182,6 +215,7 @@ def main(config):
         logger.log('max cor', np.max(cor_list), step=config.num_epoch-1)
         logger.finish()
     return
+
 
 @torch.no_grad()
 def plot_recon_figures(model, device, dataset, output_path, num_figures = 5, config=None, logger=None, model_without_ddp=None):
@@ -197,11 +231,8 @@ def plot_recon_figures(model, device, dataset, output_path, num_figures = 5, con
         sample = next(iter(dataloader))['eeg']
         sample = sample.to(device)
         _, pred, mask = model(sample, mask_ratio=config.mask_ratio)
-        
         sample_with_mask = sample.to('cpu').squeeze(0)[0].numpy().reshape(-1, model_without_ddp.patch_size)
-        
         pred = model_without_ddp.unpatchify(pred).to('cpu').squeeze(0)[0].numpy()
-        # pred = model_without_ddp.unpatchify(model_without_ddp.patchify(sample.transpose(1,2))).to('cpu').squeeze(0)[0].numpy()
         sample = sample.to('cpu').squeeze(0)[0].numpy()
         mask = mask.to('cpu').numpy().reshape(-1)
 
@@ -242,12 +273,8 @@ def plot_recon_figures2(model, device, dataset, output_path, num_figures = 5, co
         sample = next(iter(dataloader))['eeg']
         sample = sample.to(device)
         _, pred, mask = model(sample, mask_ratio=config.mask_ratio)
-        # sample_with_mask = model_without_ddp.patchify(sample.transpose(1,2))[0].to('cpu').numpy().reshape(-1, model_without_ddp.patch_size)
         sample_with_mask = sample.to('cpu').squeeze(0)[0].numpy().reshape(-1, model_without_ddp.patch_size)
-        # pred = model_without_ddp.unpatchify(pred.transpose(1,2)).to('cpu').squeeze(0)[0].unsqueeze(0).numpy()
-        # sample = sample.to('cpu').squeeze(0)[0].unsqueeze(0).numpy()
         pred = model_without_ddp.unpatchify(pred).to('cpu').squeeze(0)[0].numpy()
-        # pred = model_without_ddp.unpatchify(model_without_ddp.patchify(sample.transpose(1,2))).to('cpu').squeeze(0)[0].numpy()
         sample = sample.to('cpu').squeeze(0)[0].numpy()
         cor = np.corrcoef([pred, sample])[0,1]
 
@@ -280,12 +307,15 @@ if __name__ == '__main__':
     args = args.parse_args()
     config = Config_MBM_EEG()
     config = update_config(args, config)
-    run = wandb.init(
-    # Set the project where this run will be logged
-    project="nle",
-    # Track hyperparameters and run metadata
-    config={
-        "learning_rate": config.lr,
-        "epochs": config.num_epoch,
-    })
+    if not config.close_wandb:
+        wandb.login()
+        run = wandb.init(
+            # Set the project where this run will be logged
+            project="nle",
+            # Track hyperparameters and run metadata
+            config={
+                "learning_rate": config.lr,
+                "epochs": config.num_epoch,
+            }
+        )
     main(config)

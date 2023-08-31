@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 import wandb
 from models.LNR.lnr_eigen import LNR_eigen
-from models.egg_dataset import coch_set
+from models.eeg_dataset import coch_set
 from models.NN.dnn_basic import dnn_basic
 from models.NN.u_net import u_net
 from models.ssim_loss import SSIM
