@@ -64,6 +64,9 @@ def get_args_parser():
     parser.add_argument('--num_epoch', type=int)
     parser.add_argument('--warmup_epochs', type=int)
     parser.add_argument('--batch_size', type=int)
+    parser.add_argument('--hop_size', type=int, default=10)
+    parser.add_argument('--smooth', action='store_true')
+    parser.add_argument('--add_cor_loss', action='store_true')
 
     # Model Parameters
     parser.add_argument('--mask_ratio', type=float)
@@ -74,6 +77,7 @@ def get_args_parser():
     parser.add_argument('--num_heads', type=int)
     parser.add_argument('--decoder_num_heads', type=int)
     parser.add_argument('--mlp_ratio', type=float)
+    parser.add_argument('--resume', type=str, default='')
 
     # Project setting
     parser.add_argument('--close_wandb', action='store_true')
@@ -131,7 +135,7 @@ def main(config):
     ### check the dataset setting
     ### fmri transform ??
     data_path = "data/eeg_data/"
-    dataset_pretrain = eeg_pretrain_dataset(path=data_path)
+    dataset_pretrain = eeg_pretrain_dataset(path=data_path, hop_size=config.hop_size, smooth=config.smooth)
    
     print(f'Dataset size: {len(dataset_pretrain)}\n Time len: {dataset_pretrain.data_len}')
     sampler = torch.utils.data.DistributedSampler(dataset_pretrain, rank=config.local_rank) if torch.cuda.device_count() > 1 else None 
@@ -153,7 +157,8 @@ def main(config):
 
     param_groups = optim_factory.param_groups_weight_decay(model, config.weight_decay)
     print("base lr: %.2e" % config.lr)
-    config.lr = config.lr / 256
+    eff_batch_size = config.batch_size * torch.cuda.device_count()
+    config.lr = config.lr * eff_batch_size / 256
     print("actual lr: %.2e" % config.lr)
     optimizer = torch.optim.AdamW(param_groups, lr=config.lr, betas=(0.9, 0.95))
     print(optimizer)
@@ -168,18 +173,37 @@ def main(config):
     img_feature_extractor = None
     preprocess = None
 
-    for ep in range(config.num_epoch):
-        
+    model_path = os.path.join(output_path, 'checkpoints', 'checkpoint.pth')
+    start_epoch = 0
+    if config.resume != '':
+        checkpoint = torch.load(config.resume, map_location='cpu')
+        if 'model' in checkpoint:
+            checkpoint = checkpoint['model']
+        model_without_ddp.load_state_dict(checkpoint)
+        print("Resume checkpoint %s" % config.resume)
+    elif os.path.exists(model_path):
+        checkpoint = torch.load(model_path, map_location='cpu')
+        model_without_ddp.load_state_dict(checkpoint['model'])
+        print("Resume checkpoint %s" % model_path)
+        if 'optimizer' in checkpoint and 'epoch' in checkpoint:
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            start_epoch = checkpoint['epoch'] + 1
+            if 'scaler' in checkpoint:
+                loss_scaler.load_state_dict(checkpoint['scaler'])
+            print("With optim & sched!")
+
+    print(f"Add cor_loss: {config.add_cor_loss}")
+    for ep in range(start_epoch, config.num_epoch):
+        print(f"Start Epoch: {ep}")
         if torch.cuda.device_count() > 1: 
             sampler.set_epoch(ep) # to shuffle the data at every epoch
         cor = train_one_epoch(
             model, dataloader_eeg, optimizer, device, ep, loss_scaler, logger, 
             tensorboard_writer, config, start_time, model_without_ddp,
-            img_feature_extractor, preprocess)
+            img_feature_extractor, preprocess, config.add_cor_loss)
         cor_list.append(cor)
-        if (ep % 20 == 0 or ep + 1 == config.num_epoch) and config.local_rank == 0: #and ep != 0
+        if config.local_rank == 0:
             # save models
-        # if True:
             save_model(config, ep, model_without_ddp, optimizer, loss_scaler, os.path.join(output_path, 'checkpoints'))
             # plot figures
             plot_recon_figures(model, device, dataset_pretrain, output_path, 5, config, logger, model_without_ddp)

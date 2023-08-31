@@ -7,7 +7,9 @@ from skimage import io
 from PIL import Image
 from torch.utils.data import Dataset
 from pathlib import Path
+from scipy.fftpack import rfft, irfft
 from scipy.interpolate import interp1d
+from scipy.signal import savgol_filter
 from typing import Callable, Optional, Tuple, Union
 # Ignore warnings
 import warnings
@@ -143,6 +145,19 @@ class NLEDataset(torch.utils.data.Dataset):
 
 # -----------------------------------------------------------
 # MAE
+abnormal_data_idx = [2,10,13,24,25,34,39,52,54,60,63,67,68,70,71,75,76,80,86,87,28,79,84]
+
+def remove_bad_data_paths(indices, root_path, input_paths):
+    for i in indices:
+        bad_paths = [root_path + 'subj' + str(i) +'_mixed_f.npy',
+                     root_path + 'subj' + str(i) +'_mixed_m.npy',
+                     root_path + 'subj' + str(i) +'_single_f.npy',
+                     root_path + 'subj' + str(i) +'_single_m.npy']
+        for bp in bad_paths:
+            if bp in input_paths:
+                input_paths.remove(bp)
+    return input_paths
+
 def file_ext(name: Union[str, Path]) -> str:
     return str(name).split('.')[-1]
 
@@ -151,24 +166,50 @@ def is_npy_ext(fname: Union[str, Path]) -> bool:
     return f'{ext}' == 'npy'# type: ignore
 
 class eeg_pretrain_dataset(Dataset):
-    def __init__(self, path='./data/eeg_data/'):
+    def __init__(self, path='./data/eeg_data/', hop_size=10, smooth=False):
         super(eeg_pretrain_dataset, self).__init__()
         data = []
         images = []
         ## get input path/ data arrays
         self.input_paths = [str(f) for f in sorted(Path(path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
-        print(self.input_paths)
+        # print(self.input_paths)
+        ## remove bad data path from input_path
+        self.input_paths = remove_bad_data_paths(abnormal_data_idx,path,self.input_paths)
         assert len(self.input_paths) != 0, 'No data found'
         ### length and channels
         self.data_len  = 512
         self.data_chan = 128
+        self.smooth = smooth
 
         self.win_size = 500
-        self.hop_size = 10
-        self.num_pitchs = (60000 - self.win_size) // 10 + 1
+        self.hop_size = hop_size
+        self.num_pitchs = (60000 - self.win_size) // self.hop_size + 1
+        print(f"Num of input: {len(self.input_paths)}")
+        print(f"Window size: {self.win_size}")
+        print(f"Hop size: {self.hop_size}")
+        print(f"Num of pitches: {self.num_pitchs}")
+        print(f"Smooth: {self.smooth}")
 
     def __len__(self):
-        return len(self.input_paths)*self.num_pitchs
+        return len(self.input_paths) * self.num_pitchs
+    
+    def smooth_signal(self, signal, weight_threshold=100, keep_ratio=0.05, savgol=True, win=7, poly=1):
+        # to frequent domain
+        w = rfft(signal)
+        spectrum = w**2
+        # remove f with small value
+        cutoff_idx = spectrum < (spectrum.max()/weight_threshold)
+        if (cutoff_idx.sum() / len(cutoff_idx)) > (1-keep_ratio):
+            idx = int((1-keep_ratio) * signal.shape[-1])
+            cutoff_idx = spectrum < np.sort(spectrum)[idx]
+        w2 = w.copy()
+        w2[cutoff_idx] = 0
+        
+        s_smooth = irfft(w2)
+        # Savitzky-Golay filter
+        if savgol:
+            s_smooth = savgol_filter(s_smooth, win, poly, mode='nearest')
+        return s_smooth
     
     def __getitem__(self, index):
         eeg_idx = index // self.num_pitchs
@@ -207,6 +248,9 @@ class eeg_pretrain_dataset(Dataset):
             ret = data
         ret = ret/10 # reduce an order
         # torch.tensor()
+        if self.smooth:
+            for idx in range(len(ret)):
+                ret[idx] = self.smooth_signal(ret[idx])
         ret = torch.from_numpy(ret).float()
         return {'eeg': ret } #,
 
