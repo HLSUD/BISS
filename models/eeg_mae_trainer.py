@@ -96,7 +96,30 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
             pred = pred.detach()
             samples = samples.detach()
             pred = model_without_ddp.unpatchify(pred)
-            cor = torch.mean(torch.tensor([torch.corrcoef(torch.cat([p[0].unsqueeze(0), s[0].unsqueeze(0)],axis=0))[0,1] for p, s in zip(pred, samples)]))
+            def correlation(output, target):
+                cor = None
+                output_sub = output - torch.mean(output)
+                target_sub = target - torch.mean(target)
+
+                output_var = torch.sum((output - torch.mean(output))**2)
+                target_var = torch.sum((target - torch.mean(target))**2)
+                if output_var*target_var == 0:
+            #         print("Error: NAN, var equals to 0")
+                    cor = torch.tensor([0.0],dtype=output.dtype)
+                else:
+                    cor = torch.sum(output_sub*target_sub)/torch.sqrt(output_var*target_var)
+                return cor
+
+            def seg_corr(output, target, win = 64):
+                seg_corr = None
+                num_seg = (output.shape[-1] + 1) // win
+                
+                seg_corr =  torch.tensor([correlation(output[i*win:(i+1)*win],target[i*win:(i+1)*win]) for i in range(num_seg)])
+                return torch.mean(seg_corr)
+            cor = [[correlation(c_p, c_s) for c_p, c_s in zip(p,s)] for p, s in zip(pred, samples)]
+            cor = torch.mean(torch.tensor(cor))
+            seg_cor = [[seg_corr(c_p, c_s) for c_p, c_s in zip(p,s)] for p, s in zip(pred, samples)]
+            seg_cor = torch.mean(torch.tensor(seg_cor))
 
             if add_cor_loss:
                 cor_loss = 1 - cor

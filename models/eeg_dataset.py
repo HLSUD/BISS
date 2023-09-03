@@ -150,21 +150,78 @@ def remove_bad_data_paths(indices, root_path, input_paths):
     return input_paths
 
 # ------------------------------------------------------------------------------
+def split_dataset(eeg_path, hop_size = 50, win_size = 500, data_len=512, data_chan=128, time_pts=60000, freq = 100):
+    """
+    split data into train, val, test datasets 8:1:1
+    """
+    train_file = 'data/train_idx_name.csv'
+    val_file = 'data/val_idx_name.csv'
+    test_file = 'data/test_idx_name.csv'
+    if Path(train_file).is_file() and Path(val_file).is_file() and Path(test_file).is_file():
+        print('Train, val, test datasets have been created...')
+        return
+    
+
+    eeg_paths = [str(f) for f in sorted(Path(eeg_path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
+    eeg_paths = remove_bad_data_paths(abnormal_data_idx,eeg_path,eeg_paths)
+    assert len(eeg_paths) != 0, 'No data found'
+
+    num_pitchs = (time_pts - win_size) // hop_size + 1
+    num_items = num_pitchs * len(eeg_paths)
+
+    num_train = int(num_items * 0.8)
+    num_val = int(num_items * 0.1)
+    num_test = int(num_items * 0.1)
+    idx = np.arange(num_items)
+    np.random.shuffle(idx)
+    train_idx = idx[:num_train]
+    val_idx = idx[num_train:num_val+num_train]
+    test_idx = idx[num_val+num_train:]
+
+    df_train = pd.DataFrame(columns=['eeg_name','inner_idx'])
+    df_val = pd.DataFrame(columns=['eeg_name','inner_idx'])
+    df_test = pd.DataFrame(columns=['eeg_name','inner_idx'])
+
+    for idx in train_idx:
+        eeg_idx = idx // num_pitchs
+        inner_idx = idx - eeg_idx * num_pitchs
+        path = eeg_paths[eeg_idx]
+        df_train.loc[len(df_train.index)] = [path, inner_idx]
+    for idx in val_idx:
+        eeg_idx = idx // num_pitchs
+        inner_idx = idx - eeg_idx * num_pitchs
+        path = eeg_paths[eeg_idx]
+        df_val.loc[len(df_val.index)] = [path, inner_idx]
+    for idx in test_idx:
+        eeg_idx = idx // num_pitchs
+        inner_idx = idx - eeg_idx * num_pitchs
+        path = eeg_paths[eeg_idx]
+        df_test.loc[len(df_test.index)] = [path, inner_idx]
+
+    df_train.to_csv(train_file, index=False)
+    df_val.to_csv(val_file, index=False)
+    df_test.to_csv(test_file, index=False)
+    
+    return
+
 #### Contrastive
 class NLEDataset(torch.utils.data.Dataset):
-    def __init__(self, eeg_path = './data/eeg_data/', audio_path = './data/audio_data/', hop_size = 50, win_size = 500, data_len=512, data_chan=128, time_pts=60000, freq = 100, sr = 16000, transforms = None):
+    def __init__(self, eeg_path = './data/eeg_data/', audio_path = './data/audio_data/', csv_file = './data/train_idx_path.csv', hop_size = 50, win_size = 500, data_len=512, data_chan=128, time_pts=60000, freq = 100, sr = 16000, transforms = None):
         """
         image_filenames and cpations must have the same length; so, if there are
         multiple captions for each image, the image_filenames must have repetitive
         file names 
         """
 
-        self.eeg_paths = [str(f) for f in sorted(Path(eeg_path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
+        # self.eeg_paths = [str(f) for f in sorted(Path(eeg_path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
         # self.audio_paths = [str(f) for f in sorted(Path(audio_path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
-        self.audio_path = audio_path
         ## remove bad data path from input_path
-        self.eeg_paths = remove_bad_data_paths(abnormal_data_idx,eeg_path,self.eeg_paths)
-        assert len(self.eeg_paths) != 0, 'No data found'
+        # self.eeg_paths = remove_bad_data_paths(abnormal_data_idx,eeg_path,self.eeg_paths)
+        # assert len(self.eeg_paths) != 0, 'No data found'
+
+        self.audio_path = audio_path
+        self.eeg_path = eeg_path
+        self.data_info = pd.read_csv(csv_file)
         
         ### length and channels
         self.data_len  = data_len
@@ -183,13 +240,16 @@ class NLEDataset(torch.utils.data.Dataset):
         self.transforms = transforms
 
     def __getitem__(self, index):
-        eeg_idx = index // self.num_pitchs
-        inner_idx = index - eeg_idx * self.num_pitchs
-        data_path = self.input_paths[eeg_idx]
-        eeg_data = np.load(data_path)
+        # eeg_idx = index // self.num_pitchs
+        # inner_idx = index - eeg_idx * self.num_pitchs
+        # data_path = self.input_paths[eeg_idx]
+        eeg_name = self.data_info.iloc[index, 0]
+        inner_idx = self.data_info.iloc[index, 1]
+        eeg_data = np.load(self.eeg_path + eeg_name)
+        
         # load audio
         audio_array = None
-        if 'single_m' in data_path:
+        if 'single_m' in eeg_name:
             a_path = self.audio_path + 'male_s4.wav'
             start_loc = inner_idx * self.hop_size / self.freq * self.sr
             end_loc = start_loc + self.win_size / self.freq * self.sr
@@ -210,22 +270,10 @@ class NLEDataset(torch.utils.data.Dataset):
 
 
     def __len__(self):
-        return len(self.input_paths)*self.num_pitchs
+        return len(self.data_info)
 
 # -----------------------------------------------------------
 # MAE
-abnormal_data_idx = [2,10,13,24,25,34,39,52,54,60,63,67,68,70,71,75,76,80,86,87,28,79,84]
-
-def remove_bad_data_paths(indices, root_path, input_paths):
-    for i in indices:
-        bad_paths = [root_path + 'subj' + str(i) +'_mixed_f.npy',
-                     root_path + 'subj' + str(i) +'_mixed_m.npy',
-                     root_path + 'subj' + str(i) +'_single_f.npy',
-                     root_path + 'subj' + str(i) +'_single_m.npy']
-        for bp in bad_paths:
-            if bp in input_paths:
-                input_paths.remove(bp)
-    return input_paths
 
 def file_ext(name: Union[str, Path]) -> str:
     return str(name).split('.')[-1]

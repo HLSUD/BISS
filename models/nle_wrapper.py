@@ -15,6 +15,7 @@ from importlib_resources import files
 import pandas as pd
 from tqdm import tqdm
 from models.eeg_dataset import NLEDataset
+from models.eeg_dataset import split_dataset
 from models.NN.nle import NLE
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel
@@ -92,25 +93,31 @@ class NLEWrapper():
         return train_dataframe, valid_dataframe
 
 
-    def build_loaders(self, eeg_path, audio_path):
+    def build_loaders(self, eeg_path, audio_path, type = 'train'):
         args = read_config_as_args(self.config_as_str, is_config_str=True)
         # transforms = get_transforms(mode=mode)
         ### data sample revise
-        
-        # eeg_path = './data/eeg_data/', 
-        # audio_path = './data/audio_data/'
-        dataset = NLEDataset(eeg_path, audio_path)
+        split_dataset(eeg_path=eeg_path, hop_size=self.args.hop_size)
+        csv_file = None
+        if type == 'train':
+            csv_file = 'data/train_idx_name.csv'
+        elif type == 'val':
+            csv_file = 'data/val_idx_name.csv'
+        elif type == 'test':
+            csv_file = 'test/train_idx_name.csv'
+
+        dataset = NLEDataset(eeg_path, audio_path, csv_file)
     
-        print(f'Dataset size: {len(dataset)}\n Time len: {dataset.data_len}')
+        print(f'Dataset size: {len(dataset)}')
         sampler = torch.utils.data.DistributedSampler(dataset, rank=args.local_rank) if torch.cuda.device_count() > 1 else None 
 
         dataloader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler, 
                     shuffle=(sampler is None), pin_memory=True)
         
-        return dataloader
+        return dataloader, sampler
 
 
-    def train_epoch(self, model, train_loader, optimizer, lr_scheduler, step):
+    def train_epoch(self, model, train_loader, optimizer):
         # args = read_config_as_args(self.config_as_str, is_config_str=True)
         ## revise
         loss_meter = AvgMeter() 
@@ -121,8 +128,6 @@ class NLEWrapper():
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            if step == "batch":
-                lr_scheduler.step()
 
             count = batch["eeg"].size(0)
             loss_meter.update(loss.item(), count)
@@ -137,10 +142,12 @@ class NLEWrapper():
 
         tqdm_object = tqdm(valid_loader, total=len(valid_loader))
         for batch in tqdm_object:
-            batch = {k: v.to(args.device) for k, v in batch.items() if k != "caption"}
-            loss = model(batch)
+            # batch = {k: v.to(args.device) for k, v in batch.items() if k != "caption"}
 
-            count = batch["image"].size(0)
+            loss = model(batch['audio'],batch['eeg'])
+
+
+            count = batch["eeg"].size(0)
             loss_meter.update(loss.item(), count)
 
             tqdm_object.set_postfix(valid_loss=loss_meter.avg)
@@ -170,19 +177,19 @@ class NLEWrapper():
         np.random.seed(args.seed)
 
         # create dataset and dataloader
-        eeg_path = './data/eeg_data/', 
+        eeg_path = './data/eeg_data/'
         audio_path = './data/audio_data/'
-        dataset = NLEDataset(eeg_path, audio_path)
+        # dataset = NLEDataset(eeg_path, audio_path)
     
-        print(f'Dataset size: {len(dataset)}\n Time len: {dataset.data_len}')
-        sampler = torch.utils.data.DistributedSampler(dataset, rank=args.local_rank) if torch.cuda.device_count() > 1 else None 
+        # print(f'Dataset size: {len(dataset)}\n Time len: {dataset.data_len}')
+        # sampler = torch.utils.data.DistributedSampler(dataset, rank=args.local_rank) if torch.cuda.device_count() > 1 else None 
 
-        dataloader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler, 
-                    shuffle=(sampler is None), pin_memory=True)
-
-        # valid_loader = build_loaders(valid_df, tokenizer, mode="valid") check
+        # dataloader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler, 
+                    # shuffle=(sampler is None), pin_memory=True)
+        dataloader, sampler = self.build_loaders(eeg_path,audio_path)
+        valid_loader, _ = self.build_loaders(eeg_path,audio_path, type='val')
         # create model
-        args.time_len=dataset.data_len
+        # args.time_len=dataset.data_len
         model = self.nle
         model.to(device)
         model_without_ddp = model
@@ -208,21 +215,17 @@ class NLEWrapper():
                 sampler.set_epoch(ep) # to shuffle the data at every epoch
             model.train()
             ### revise
-            loss = self.train_epoch(model, dataloader, optimizer, lr_scheduler, step)
+            loss = self.train_epoch(model, dataloader, optimizer)
             model.eval()
             loss_list.append(loss)
 
-            # save models
-            if (ep % 20 == 0 or ep + 1 == args.num_epoch) and args.local_rank == 0: #and ep != 0
-            # if True:
-                save_model(args, ep, model_without_ddp, optimizer, loss_scaler, os.path.join(output_path,'checkpoints'))
-            # with torch.no_grad():
-            #     valid_loss = valid_epoch(model, valid_loader)
+            with torch.no_grad():
+                valid_loss = self.valid_epoch(model, valid_loader)
         
-            # if valid_loss.avg < best_loss:
-            #     best_loss = valid_loss.avg
-            #     torch.save(model.state_dict(), "best.pt")
-            #     print("Saved Best Model!")
+            if valid_loss.avg < best_loss:
+                best_loss = valid_loss.avg
+                torch.save(model.state_dict(), "best.pt")
+                print("Saved Best Model!")
 
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
