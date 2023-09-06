@@ -79,7 +79,7 @@ class TextEncoder(nn.Module):
         text_embeddings = self.projection(text_features)
         return text_embeddings
 
-class AudioEncoder(nn.model):
+class AudioEncoder(nn.Module):
     def __init__(self, model_name:str, audio_model: str, processor_model: str, transformer_embed_dim: int, out_dims: int, trainable: bool) -> None:
         """
             Wav2Vec_2 zh as audioencoder
@@ -96,7 +96,7 @@ class AudioEncoder(nn.model):
         elif model_name == 'whisper':
             self.processor = WhisperProcessor.from_pretrained(processor_model)
             self.base = WhisperModel.from_pretrained(audio_model)
-        for p in self.model.parameters():
+        for p in self.base.parameters():
             p.requires_grad = trainable
         self.projection = Projection(transformer_embed_dim, out_dims)
         # self.target_token_idx = 0
@@ -115,7 +115,9 @@ class AudioEncoder(nn.model):
             audio_features = self.base(inputs.input_values, attention_mask=inputs.attention_mask).last_hidden_state
         
         elif self.model_name == 'whisper':
-            audio_features = self.base(inputs.input_features, attention_mask=inputs.attention_mask).last_hidden_state
+            decoder_input_ids = torch.tensor([[1, 1]]) * self.base.config.decoder_start_token_id
+            audio_features = self.base(inputs.input_features, decoder_input_ids=decoder_input_ids)
+            audio_features = audio_features.last_hidden_state
             # audio_features = self.base.generate(input.input_features)
         
         audio_embeddings = self.projection(audio_features)
@@ -144,12 +146,14 @@ class NLE(nn.Module):
                 depth: int,
                 heads: int,
                 # audio
+                audioenc_name: str,
                 audio_model: str,
                 processor_model: str,
                 # text_model: str,
                 transformer_embed_dim: int,
                 # common
                 out_dims: int,
+                trainable: bool,
                 temperature,
                 ):
         super().__init__()
@@ -160,7 +164,7 @@ class NLE(nn.Module):
         )
 
         self.audio_encoder = AudioEncoder(
-            audio_model, processor_model, transformer_embed_dim,out_dims
+            audioenc_name, audio_model, processor_model, transformer_embed_dim,out_dims, trainable
         )
         self.temperature = temperature
         # self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))

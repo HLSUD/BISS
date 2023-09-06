@@ -33,7 +33,7 @@ class NLEWrapper():
         self.default_collate_err_msg_format = (
             "default_collate: batch must contain tensors, numpy arrays, numbers, "
             "dicts or lists; found {}")
-        self.config_as_str = files('configs').joinpath('config.yml').read_text()
+        self.config_as_str = files('config').joinpath('config.yml').read_text()
         self.model_fp = model_fp # file path
         self.use_cuda = use_cuda
         self.nle, self.args = self.load_nle()
@@ -56,10 +56,12 @@ class NLEWrapper():
             args.embed_dim,
             args.depth,
             args.heads,
+            args.audioenc_name,
             args.audio_model,
             args.processor_model,
             args.transformer_embed_dim,
             args.out_dims,
+            args.trainable,
             args.temperature
             )
 
@@ -106,8 +108,9 @@ class NLEWrapper():
         elif type == 'test':
             csv_file = 'test/train_idx_name.csv'
 
-        dataset = NLEDataset(eeg_path, audio_path, csv_file)
-    
+        dataset = NLEDataset(eeg_path, audio_path, csv_file, self.args.hop_size, self.args.smooth)
+        print(dataset[0]['eeg'])
+        print(dataset[0]['audio'])
         print(f'Dataset size: {len(dataset)}')
         sampler = torch.utils.data.DistributedSampler(dataset, rank=args.local_rank) if torch.cuda.device_count() > 1 else None 
 
@@ -120,7 +123,7 @@ class NLEWrapper():
     def train_epoch(self, model, train_loader, optimizer):
         # args = read_config_as_args(self.config_as_str, is_config_str=True)
         ## revise
-        loss_meter = AvgMeter() 
+        loss_meter = AvgMeter()
         tqdm_object = tqdm(train_loader, total=len(train_loader))
         for batch in tqdm_object:
             # batch = {k: v.to(args.device) for k, v in batch.items() if k != "caption"}
@@ -195,8 +198,7 @@ class NLEWrapper():
         model_without_ddp = model
         if torch.cuda.device_count() > 1:
             model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-            model = DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=args.use_nature_img_loss)
-
+            model = DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank)
         param_groups = optim_factory.param_groups_weight_decay(model, args.weight_decay)
         optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
         print(optimizer)
@@ -208,7 +210,6 @@ class NLEWrapper():
         loss_list = []
         start_time = time.time()
         print('Start Training the NLE ...')
-        
         for ep in range(args.num_epoch):
             
             if torch.cuda.device_count() > 1: 
@@ -238,3 +239,4 @@ class NLEWrapper():
 if __name__ == "__main__":
     nle_trainer = NLEWrapper()
     nle_trainer.train_nle()
+#    split_dataset(eeg_path='./data/eeg_data/', hop_size=100)

@@ -204,9 +204,28 @@ def split_dataset(eeg_path, hop_size = 50, win_size = 500, data_len=512, data_ch
     
     return
 
+#### smooth signals
+def smooth_signal(signal, weight_threshold=100, keep_ratio=0.05, savgol=True, win=7, poly=1):
+        # to frequent domain
+        w = rfft(signal)
+        spectrum = w**2
+        # remove f with small value
+        cutoff_idx = spectrum < (spectrum.max()/weight_threshold)
+        if (cutoff_idx.sum() / len(cutoff_idx)) > (1-keep_ratio):
+            idx = int((1-keep_ratio) * signal.shape[-1])
+            cutoff_idx = spectrum < np.sort(spectrum)[idx]
+        w2 = w.copy()
+        w2[cutoff_idx] = 0
+
+        s_smooth = irfft(w2)
+        # Savitzky-Golay filter
+        if savgol:
+            s_smooth = savgol_filter(s_smooth, win, poly, mode='nearest')
+        return s_smooth
+
 #### Contrastive
 class NLEDataset(torch.utils.data.Dataset):
-    def __init__(self, eeg_path = './data/eeg_data/', audio_path = './data/audio_data/', csv_file = './data/train_idx_path.csv', hop_size = 50, win_size = 500, data_len=512, data_chan=128, time_pts=60000, freq = 100, sr = 16000, transforms = None):
+    def __init__(self, eeg_path = './data/eeg_data/', audio_path = './data/audio_data/', csv_file = './data/train_idx_path.csv', hop_size = 50, smooth = True, win_size = 500, data_len=512, data_chan=128, time_pts=60000, freq = 100, sr = 16000, transforms = None):
         """
         image_filenames and cpations must have the same length; so, if there are
         multiple captions for each image, the image_filenames must have repetitive
@@ -231,32 +250,41 @@ class NLEDataset(torch.utils.data.Dataset):
         self.hop_size = hop_size
         self.freq = freq
         self.sr = sr # audio sample rate
+        self.smooth = smooth
 
         self.num_pitchs = (time_pts - self.win_size) // self.hop_size + 1
 
-        # print(len(self.input_paths))
-        print(self.num_pitchs)
-
+        print(f"Window size: {self.win_size}")
+        print(f"Hop size: {self.hop_size}")
+        print(f"Num of pitches: {self.num_pitchs}")
+        print(f"Smooth: {self.smooth}")
         self.transforms = transforms
 
     def __getitem__(self, index):
         # eeg_idx = index // self.num_pitchs
         # inner_idx = index - eeg_idx * self.num_pitchs
         # data_path = self.input_paths[eeg_idx]
-        eeg_name = self.data_info.iloc[index, 0]
+        eeg_path = self.data_info.iloc[index, 0]
         inner_idx = self.data_info.iloc[index, 1]
-        eeg_data = np.load(self.eeg_path + eeg_name)
+        eeg_data = np.load(eeg_path)
         
         # load audio
         audio_array = None
-        if 'single_m' in eeg_name:
+        a_path = ''
+        if 'single_m' in eeg_path:
             a_path = self.audio_path + 'male_s4.wav'
-            start_loc = inner_idx * self.hop_size / self.freq * self.sr
-            end_loc = start_loc + self.win_size / self.freq * self.sr
-            audio, sr = torchaudio.load(a_path)
-            if sr != self.sr:
-                audio = torchaudio.functional.resample(audio, orig_freq=sr, new_freq=self.sr)
-            audio_array = audio[start_loc:end_loc]
+        elif 'single_f' in eeg_path:
+            a_path = self.audio_path + 'female_s1.wav'
+        elif 'mix' in eeg_path:
+            a_path = self.audio_path + 'mix_s1s4.wav'
+        else:
+            print(f"EEG name error: {eeg_path}")
+        audio, sr = torchaudio.load(a_path)
+        if sr != self.sr:
+            audio = torchaudio.functional.resample(audio, orig_freq=sr, new_freq=self.sr)
+        start_loc = int(inner_idx * self.hop_size / self.freq * self.sr)
+        end_loc = int(start_loc + self.win_size / self.freq * self.sr)
+        audio_array = audio[0,start_loc:end_loc]
 
         start_loc = inner_idx * self.hop_size
         data = eeg_data[:,start_loc:(start_loc+self.win_size)]

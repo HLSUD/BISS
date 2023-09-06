@@ -5,6 +5,52 @@ import torch
 import os
 import scipy.fftpack
 from scipy.signal import savgol_filter
+import argparse
+import yaml
+
+class AvgMeter:
+    def __init__(self, name="Metric"):
+        self.name = name
+        self.reset()
+
+    def reset(self):
+        self.avg, self.sum, self.count = [0] * 3
+
+    def update(self, val, count=1):
+        self.count += count
+        self.sum += val * count
+        self.avg = self.sum / self.count
+
+    def __repr__(self):
+        text = f"{self.name}: {self.avg:.4f}"
+        return text
+
+def get_lr(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group["lr"]
+
+def read_config_as_args(config_path,args=None,is_config_str=False):
+    return_dict = {}
+
+    if config_path is not None:
+        if is_config_str:
+            yml_config = yaml.load(config_path, Loader=yaml.FullLoader)
+        else:
+            with open(config_path, "r") as f:
+                yml_config = yaml.load(f, Loader=yaml.FullLoader)
+
+        if args != None:
+            for k, v in yml_config.items():
+                if k in args.__dict__:
+                    args.__dict__[k] = v
+                else:
+                    sys.stderr.write("Ignored unknown parameter {} in yaml.\n".format(k))
+        else:
+            for k, v in yml_config.items():
+                return_dict[k] = v
+
+    args = args if args != None else return_dict
+    return argparse.Namespace(**args)
 
 def smooth_signal(signal, weight_threshold=100, keep_ratio=0.05, savgol=True, win=7, poly=1):
     x_axis = np.arange(0, signal.shape[-1])
