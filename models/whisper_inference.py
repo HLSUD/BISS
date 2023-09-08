@@ -3,7 +3,7 @@ import os
 import numpy as np
 sys.path.append(os.path.join(os.path.dirname(__file__),'../'))
 from models.whisper.__init__ import load_model,pad_or_trim,log_mel_spectrogram,load_audio
-from models.whisper.decoding import DecodingOptions, DecodingResult, decode, GreedyDecoder
+from models.whisper.decoding import PyTorchInference, DecodingOptions, DecodingResult, decode, GreedyDecoder
 from models.whisper.tokenizer import Tokenizer, get_tokenizer
 from models.whisper.decoding import SuppressBlank, SuppressTokens, ApplyTimestampRules, MaximumLikelihoodRanker
 from models.whisper.audio import CHUNK_LENGTH
@@ -41,20 +41,20 @@ def _get_suppress_tokens(tokenizer, options):
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = load_model('tiny').to(device)
+print(f"Device: {device}...")
 
 ##### load audio and to mel spectrogram
-audio_path = os.path.join(os.path.dirname(__file__), "../data/audio/beast_ch.wav")
+audio_path = os.path.join(os.path.dirname(__file__), "../data/beast_ch.wav")
 # audio = load_audio(audio_path)
 audio, sr = torchaudio.load(audio_path)
 if sr != 16000:
     audio = torchaudio.functional.resample(audio, orig_freq=sr, new_freq=16000)[0,:]
-print(audio.shape)
+
 audio = pad_or_trim(audio)
     
 mel = log_mel_spectrogram(audio).to(model.device)
 
 _, probs = model.detect_language(mel)
-print(mel.shape)
 
 ## Tokenize
 language = "zh"
@@ -65,19 +65,26 @@ tokenizer = get_tokenizer(
 
 ### decoding options
 all_tokens = []
-initial_prompt = "以下是普通话的句子"
-if initial_prompt is not None:
-        initial_prompt_tokens = tokenizer.encode(" " + initial_prompt.strip())
-        all_tokens.extend(initial_prompt_tokens)
-print(all_tokens)
+
+#initial_prompt = "以下是普通话的句子"
+#print(len(initial_prompt))
+#if initial_prompt is not None:
+#        initial_prompt_tokens = tokenizer.encode(" " + initial_prompt.strip())
+#        all_tokens.extend(initial_prompt_tokens)
+#print(all_tokens)
+
 options = DecodingOptions(fp16 = False,prompt = all_tokens[:])
+
+#result = model.decode( mel, options)
+#print(result.text)
+#exit()
 
 ## decoder 
 # decoder: implements how to select the next tokens, given the autoregressive distribution
 decoder = GreedyDecoder(options.temperature, tokenizer.eot)
 
 # get_initial_tokens
-n_ctx: int = model.dims.n_text_ctx # 输入文本的上下文大小，即处理文本的窗口大小，通常设置为448
+n_ctx: int = model.dims.n_text_ctx # input text context size (text win size), default 448
 ### prompt used to set simplied chinese
 prompt = options.prompt
 tokens = list(tokenizer.sot_sequence)
@@ -115,8 +122,8 @@ if not options.without_timestamps:
         )
     )
 
-
-# inference = PyTorchInference(model, len(initial_tokens))
+### this class could release some GPU memory
+inference = PyTorchInference(model, len(initial_tokens))
 
 ## mel spectrogram
 single = (mel.ndim == 2)
@@ -127,41 +134,45 @@ if single:
 audio_features = model.embed_audio(mel)
 
 n_audio = 1
-tokens = torch.tensor([initial_tokens]).repeat(n_audio, 1)
+tokens = torch.tensor([initial_tokens]).repeat(n_audio, 1).to(device)
 
 tokens = tokens.repeat_interleave(1, dim=0)
 
 ## sampleing loop
 n_batch = tokens.shape[0]
-sum_logprobs = torch.zeros((n_batch))
+sum_logprobs = torch.zeros((n_batch)).to(device)
 no_speech_probs = [np.nan] * n_batch
 sample_len: int = options.sample_len or model.dims.n_text_ctx // 2
-print(f"sample len {sample_len}")
+#print(f"Sample length: {sample_len}...")
+n_ctx = 50 # set smaller, cause memory may be insufficient
+#initial_token_length = tokens.shape[-1]
 try:
     for i in range(sample_len):
         # print(type(tokens),type(audio_features))
-        logits = model.decoder(tokens, audio_features)
-
+        #if tokens.shape[-1] > initial_token_length:
+            # only need to use the last token except in the first forward pass
+        # consider the logits at the last token only
+        logits = inference.logits(tokens, audio_features)
+        #logits = model.decoder(tokens, audio_features)[:, -1]
         if (
             i == 0 and tokenizer.no_speech is not None
         ):  # save no_speech_probs
             probs_at_sot = logits[:, sot_index].float().softmax(dim=-1)
             no_speech_probs = probs_at_sot[:, tokenizer.no_speech].tolist()
-
-        # now we need to consider the logits at the last token only
-        logits = logits[:, -1]
+        logits = logits[:, -1] 
 
         # apply the logit filters, e.g. for suppressing or applying penalty to
         for logit_filter in logit_filters:
             logit_filter.apply(logits, tokens)
-
         # expand the tokens tensor with the selected next tokens
         tokens, completed = decoder.update(tokens, logits, sum_logprobs)
+        #print("torch.cuda.memory_reserved: %fGB %d"%(i,torch.cuda.memory_reserved(0)/1024/1024/1024))
 
         if completed or tokens.shape[-1] > n_ctx:
             break
 finally:
-    print("sampling")
+    inference.cleanup_caching()
+    print("Clean up cache...")
 
 # reshape the tensors to have (n_audio, n_group) as the first two dimensions
 n_group = 1
@@ -185,13 +196,14 @@ selected = sequence_ranker.rank(tokens, sum_logprobs)
 tokens = [t[i].tolist() for i, t in zip(selected, tokens)]
 for t in tokens:
     all_tokens.extend(t)
-print(all_tokens)
+
 # texts = [tokenizer.decode(t).strip() for t in tokens]
 texts = tokenizer.decode(all_tokens).strip()
 # result = decode(model, mel, options)
 
 print(texts)
-### 大野手 叶头上就是那副话的模本 这本书中写到
-### 大野獸,叶头上就是那副话的模本,这本书中写到 base
+### 大野手 叶头上就是那副话的模本 这本书中写到 tiny 也受 葉頭上就是那副話的模本這本書中寫到
+### 大野獸,叶头上就是那副话的模本,这本书中写到 base 大野獸,葉頭上就是納附化的魔本,這本書中寫到
 ### 大野兽》,液头上就是那幅画的《魔本》,这本书中写道 small
-### 
+### medium 大野獸。《夜頭上就是那幅畫》的魔本,這本書中寫道
+### 大野兽,叶头上就是那幅画的模本。这本书中写到的large 大野獸葉頭上就是那幅畫的模本這本書中寫道
