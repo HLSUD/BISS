@@ -1,4 +1,5 @@
 from __future__ import print_function, division
+from models.whisper.audio import log_mel_spectrogram, pad_or_trim
 import os
 import torch
 import pandas as pd
@@ -284,7 +285,9 @@ class NLEDataset(torch.utils.data.Dataset):
             audio = torchaudio.functional.resample(audio, orig_freq=sr, new_freq=self.sr)
         start_loc = int(inner_idx * self.hop_size / self.freq * self.sr)
         end_loc = int(start_loc + self.win_size / self.freq * self.sr)
-        audio_array = audio[0,start_loc:end_loc]
+        audio_array = audio[0,start_loc:end_loc] #  to mono audio
+        audio_array = pad_or_trim(audio_array)
+        mel = log_mel_spectrogram(audio_array) ## check 
 
         start_loc = inner_idx * self.hop_size
         data = eeg_data[:,start_loc:(start_loc+self.win_size)]
@@ -294,7 +297,7 @@ class NLEDataset(torch.utils.data.Dataset):
             ret[i] = smooth_signal(ret[i])
         
         ret = torch.from_numpy(ret).float()
-        return {'eeg': ret, 'audio': audio_array}
+        return {'eeg': ret, 'audio': mel}
 
 
     def __len__(self):

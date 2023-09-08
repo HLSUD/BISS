@@ -9,6 +9,7 @@ import torchaudio
 from datasets import load_dataset
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 from transformers import WhisperProcessor, WhisperForConditionalGeneration, WhisperModel
+from models.whisper.__init__ import load_model
 from datasets import load_dataset
 from .neuro_transformer import NeuroTransformer
 from .eeg_mae import eeg_encoder
@@ -94,8 +95,9 @@ class AudioEncoder(nn.Module):
             self.processor = Wav2Vec2Processor.from_pretrained(processor_model)
             self.base = Wav2Vec2ForCTC.from_pretrained(audio_model)
         elif model_name == 'whisper':
-            self.processor = WhisperProcessor.from_pretrained(processor_model)
-            self.base = WhisperModel.from_pretrained(audio_model)
+            self.base = load_model('small')
+            # self.processor = WhisperProcessor.from_pretrained(processor_model)
+            # self.base = WhisperModel.from_pretrained(audio_model)
         for p in self.base.parameters():
             p.requires_grad = trainable
         self.projection = Projection(transformer_embed_dim, out_dims)
@@ -108,17 +110,14 @@ class AudioEncoder(nn.Module):
         return batch
 
     def forward(self, x):
-        inputs = self.processor(x, sampling_rate=16_000, return_tensors="pt", padding=True)
 
         if self.model_name == 'wav2vec':
+            inputs = self.processor(x, sampling_rate=16_000, return_tensors="pt", padding=True)
             ### encoder_last_hidden_state or last_hidden_state
             audio_features = self.base(inputs.input_values, attention_mask=inputs.attention_mask).last_hidden_state
         
         elif self.model_name == 'whisper':
-            decoder_input_ids = torch.tensor([[1, 1]]) * self.base.config.decoder_start_token_id
-            audio_features = self.base(inputs.input_features, decoder_input_ids=decoder_input_ids)
-            audio_features = audio_features.last_hidden_state
-            # audio_features = self.base.generate(input.input_features)
+            audio_features = self.base.embed_audio(x) ### audio encoder features
         
         audio_embeddings = self.projection(audio_features)
         return audio_embeddings

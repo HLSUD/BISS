@@ -7,7 +7,8 @@ checkpoints/CNN*
 *.pth.tar
 data/data
 data/audio
-data/*
+data/eeg_data
+data/little_prince_word_info
 results
 events*
 *.npy
