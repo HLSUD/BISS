@@ -12,7 +12,7 @@ local_rank: 0
 pretrained: False # for both image encoder and text encoder
 trainable: False # for audio encoder
 temperature: 1.0
-root_path: '.'
+root_path: "."
 seed: 2023
 
 # image size
@@ -20,42 +20,42 @@ seed: 2023
 
 # for projection head; used for both image and text encoders
 num_projection_layers: 1
-transformer_embed_dim: 512
 out_dims: 256
 dropout: 0.1
 # temperature: 0.003
 
 # TEXT ENCODER CONFIG
-text_model: 'bert-base-uncased'
+text_model: "bert-base-uncased"
 text_len: 100
 # transformer_embed_dim: 768
 # freeze_text_encoder_weights: True
-text_cl: 'bert'
+text_cl: "bert"
 
 # AUDIO ENCODER CONFIG
-audioenc_name: 'whisper'
-out_emb: 2048
+audioenc_name: "whisper"
+# out_emb: 2048
 #sampling_rate: 44100
-duration: 5
 #fmin: 50
 #fmax: 14000
 #n_fft: 1028
 #hop_size: 100
 #mel_bins: 64
 #window_size: 1024
-channels: 128
-timepoints: 512
-depth: 24
-heads: 16
-audio_model: 'openai/whisper-base.en'
-processor_model: 'openai/whisper-base.en'
-embed_dim: 512
+duration: 5
+audio_model: "large"
+processor_model: "openai/whisper-base.en"
+transformer_embed_dim: 1280
 
 # EEG ENCODER CONFIG
 hop_size: 100
 smooth: True # smooth eeg signals
+embed_dim: 1024
+channels: 128
+timepoints: 512
+# depth: 24
+# heads: 16
 
-# PROJECTION SPACE CONFIG 
+# PROJECTION SPACE CONFIG
 #d_proj: 1024
 #temperature: 0.003
 

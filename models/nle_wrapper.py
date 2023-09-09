@@ -2,14 +2,14 @@
 # https://github.com/microsoft/CLAP/blob/main/src/CLAPWrapper.py
 
 ### AvgMeter ???? get_lr???
-
+import os,sys
+sys.path.append(os.path.join(os.path.dirname(__file__),'../'))
 import datetime
 import time
 from models.NN.nle import NLE
 import re
 import numpy as np
 from models.utils import read_config_as_args
-import os
 import torch
 from importlib_resources import files
 import pandas as pd
