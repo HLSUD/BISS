@@ -120,13 +120,14 @@ class NLEWrapper():
         return dataloader, sampler
 
 
-    def train_epoch(self, model, train_loader, optimizer):
+    def train_epoch(self, model, train_loader, optimizer, device):
         # args = read_config_as_args(self.config_as_str, is_config_str=True)
         ## revise
         loss_meter = AvgMeter()
         tqdm_object = tqdm(train_loader, total=len(train_loader))
         for batch in tqdm_object:
-            # batch = {k: v.to(args.device) for k, v in batch.items() if k != "caption"}
+            #batch = batch.to(self.args.device)
+            batch = {k: v.to(device) for k, v in batch.items()}
             loss = model(batch['audio'],batch['eeg'])
             optimizer.zero_grad()
             loss.backward()
@@ -139,13 +140,13 @@ class NLEWrapper():
         return loss_meter
 
 
-    def valid_epoch(self, model, valid_loader):
+    def valid_epoch(self, model, valid_loader, device):
 
         loss_meter = AvgMeter()
 
         tqdm_object = tqdm(valid_loader, total=len(valid_loader))
         for batch in tqdm_object:
-            # batch = {k: v.to(args.device) for k, v in batch.items() if k != "caption"}
+            batch = {k: v.to(device) for k, v in batch.items()}
 
             loss = model(batch['audio'],batch['eeg'])
 
@@ -216,14 +217,16 @@ class NLEWrapper():
                 sampler.set_epoch(ep) # to shuffle the data at every epoch
             model.train()
             ### revise
-            loss = self.train_epoch(model, dataloader, optimizer)
+            loss = self.train_epoch(model, dataloader, optimizer, device)
             model.eval()
             loss_list.append(loss)
 
             with torch.no_grad():
-                valid_loss = self.valid_epoch(model, valid_loader)
+                valid_loss = self.valid_epoch(model, valid_loader, device)
         
+            ### log loss info
             if valid_loss.avg < best_loss:
+            
                 best_loss = valid_loss.avg
                 torch.save(model.state_dict(), "best.pt")
                 print("Saved Best Model!")

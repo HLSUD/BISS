@@ -52,8 +52,8 @@ smooth: True # smooth eeg signals
 embed_dim: 1024
 channels: 128
 timepoints: 512
-# depth: 24
-# heads: 16
+depth: 24
+heads: 16
 
 # PROJECTION SPACE CONFIG
 #d_proj: 1024

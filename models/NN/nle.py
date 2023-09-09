@@ -61,7 +61,7 @@ class NeuroMAE(nn.Module):
         self.projection = Projection(embed_dim, out_dims) ### may have errors
 
     def forward(self, x):
-        neuro_features,_,_ = self.base(x)
+        neuro_features = self.base(x)
         print(neuro_features.shape)
         neuro_embeddings = self.projection(neuro_features)
         print(neuro_embeddings.shape)
@@ -178,7 +178,8 @@ class NLE(nn.Module):
         audio_embeddings = self.audio_encoder(audio)
         neuro_embeddings = self.neuro_encoder(neuro)
 
-        
+        # audio torch.Size([8, 1500, 256])
+        ## eeg torch.Size([8, 128, 256]) 
         # Calculating the Loss
         logits = (audio_embeddings @ neuro_embeddings.T) / self.temperature
         print(logits.shape)
