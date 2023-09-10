@@ -36,9 +36,10 @@ class NLEWrapper():
         self.config_as_str = files('config').joinpath('config.yml').read_text()
         self.eeg_pretrain_model = eeg_pretrain_model # file path
         self.use_cuda = use_cuda
-        self.nle, self.args = self.load_nle()
+        self.args = read_config_as_args(self.config_as_str, is_config_str=True)
         if eeg_pretrain_model is None:
             self.eeg_pretrain_model = self.args.eeg_pretrain_path
+        self.nle, _ = self.load_nle()
 
     def load_nle(self):
         r"""Load NLE model with args from config file"""
@@ -68,9 +69,11 @@ class NLEWrapper():
             )
 
         # Load eeg pretrained weights for model
-        if self.eeg_pretrain_model is not None:
+        if self.eeg_pretrain_model is not None and os.path.exists(self.eeg_pretrain_model):
             model_state_dict = torch.load(self.eeg_pretrain_model, map_location=torch.device('cpu'))['model']
             nle.neuro_encoder.load_state_dict(model_state_dict)
+        else:
+            print("Fail to load EEG MAE pretrained model...")
 
         nle.eval()  # set nle in eval mode
     
@@ -111,9 +114,7 @@ class NLEWrapper():
             csv_file = 'test/train_idx_name.csv'
 
         dataset = NLEDataset(eeg_path, audio_path, csv_file, self.args.hop_size, self.args.smooth)
-        print(dataset[0]['eeg'])
-        print(dataset[0]['audio'])
-        print(f'Dataset size: {len(dataset)}')
+        print(f'{type} dataset size: {len(dataset)}')
         sampler = torch.utils.data.DistributedSampler(dataset, rank=args.local_rank) if torch.cuda.device_count() > 1 else None 
 
         dataloader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler, 

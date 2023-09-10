@@ -81,7 +81,7 @@ class NeuroMAE(nn.Module):
         self.base = eeg_encoder(timepoints, patch_size=4, embed_dim=embed_dim, in_chans=channels, depth=depth, num_heads=heads)
 
         self.projection = Projection(embed_dim, out_dims) ### may have errors
-        self.pooling = EncoderPooler(out_dims)
+        self.pooling = EncoderPooler(embed_dim)
 
     def forward_features(self, x):
         neuro_features = self.base(x)
@@ -89,10 +89,8 @@ class NeuroMAE(nn.Module):
 
     def forward(self, x):
         neuro_features = self.base(x)
-        print(neuro_features.shape)
         neuro_features= self.pooling(neuro_features)
         neuro_embeddings = self.projection(neuro_features)
-        print(neuro_embeddings.shape)
         return neuro_embeddings
 
 # class TextEncoder(nn.Module):
@@ -134,7 +132,7 @@ class AudioEncoder(nn.Module):
         for p in self.base.parameters():
             p.requires_grad = trainable
         self.projection = Projection(transformer_embed_dim, out_dims)
-        self.pooling = EncoderPooler(out_dims)
+        self.pooling = EncoderPooler(transformer_embed_dim)
         # self.target_token_idx = 0
 
     def speech_file_to_array_fn(batch):
@@ -162,7 +160,6 @@ class AudioEncoder(nn.Module):
         ### pooling
         audio_features = self.pooling(audio_features)
         audio_embeddings = self.projection(audio_features)
-        print(audio_embeddings.shape)
         return audio_embeddings
 
     # def speech_recognition(self):
@@ -219,7 +216,6 @@ class NLE(nn.Module):
         ## eeg torch.Size([8, 128, 256]) 
         # Calculating the Loss
         logits = (audio_embeddings @ neuro_embeddings.T) / self.temperature
-        print(logits.shape)
         neuro_similarity = neuro_embeddings @ neuro_embeddings.T
         audios_similarity = audio_embeddings @ audio_embeddings.T
         targets = F.softmax(
