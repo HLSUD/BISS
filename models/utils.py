@@ -12,6 +12,7 @@ class AvgMeter:
     def __init__(self, name="Metric"):
         self.name = name
         self.reset()
+        self.max = -1
 
     def reset(self):
         self.avg, self.sum, self.count = [0] * 3
@@ -20,6 +21,8 @@ class AvgMeter:
         self.count += count
         self.sum += val * count
         self.avg = self.sum / self.count
+        if val > self.max:
+            self.max = val
 
     def __repr__(self):
         text = f"{self.name}: {self.avg:.4f}"
@@ -160,6 +163,16 @@ def save_model(config, epoch, model, optimizer, loss_scaler, checkpoint_paths):
         'optimizer': optimizer.state_dict(),
         'epoch': epoch,
         'scaler': loss_scaler.state_dict(),
+        'config': config,
+    }
+    torch.save(to_save, os.path.join(checkpoint_paths, 'checkpoint.pth'))
+
+def save_model(config, epoch, model, optimizer, checkpoint_paths):
+    os.makedirs(checkpoint_paths, exist_ok=True)
+    to_save = {
+        'model': model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'epoch': epoch,
         'config': config,
     }
     torch.save(to_save, os.path.join(checkpoint_paths, 'checkpoint.pth'))

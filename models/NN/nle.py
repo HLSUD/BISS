@@ -1,4 +1,5 @@
 import numpy as np
+from typing import Callable, Optional, Sequence, Tuple
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -14,7 +15,29 @@ from .neuro_transformer import NeuroTransformer
 from .eeg_mae import MAEforEEG, eeg_encoder
 """
 1. implememnt eeg_encoder as neuro_encoder for contrastive learning 
-"""
+""" 
+
+class LayerNorm(nn.LayerNorm):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return super().forward(x.float()).type(x.dtype)
+
+class EncoderPooler(nn.Module):
+    def __init__(self, out_dims:int, average: bool = False) -> None:
+        super().__init__()
+        self.ln_post = LayerNorm(out_dims)
+        self.average_pool = average
+
+    def _global_pool(self, x: torch.Tensor, average: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
+        if average:
+            return x.mean(dim=1), x
+        else:
+            return x[:, 0], x[:, 1:] #  the first token in the encoder output typically serves as an aggregate representation or summary of the entire input sequence
+
+    def forward(self, x):
+         ### pooling NCT -> NT
+        pooled, _ = self._global_pool(x, self.average_pool)
+        pooled = self.ln_post(pooled)
+        return pooled
 
 class Projection(nn.Module):
     def __init__(self, d_in: int, d_out: int, p: float=0.5) -> None:
@@ -56,13 +79,18 @@ class NeuroMAE(nn.Module):
         #  embed_dim=1024, in_chans=128, depth=24, num_heads=16
         # encoder forward_encoder is different from MAE forward_encoder
         self.base = eeg_encoder(timepoints, patch_size=4, embed_dim=embed_dim, in_chans=channels, depth=depth, num_heads=heads)
-        ### load MAE !!!!!
 
         self.projection = Projection(embed_dim, out_dims) ### may have errors
+        self.pooling = EncoderPooler(out_dims)
+
+    def forward_features(self, x):
+        neuro_features = self.base(x)
+        return neuro_features
 
     def forward(self, x):
         neuro_features = self.base(x)
         print(neuro_features.shape)
+        neuro_features= self.pooling(neuro_features)
         neuro_embeddings = self.projection(neuro_features)
         print(neuro_embeddings.shape)
         return neuro_embeddings
@@ -106,6 +134,7 @@ class AudioEncoder(nn.Module):
         for p in self.base.parameters():
             p.requires_grad = trainable
         self.projection = Projection(transformer_embed_dim, out_dims)
+        self.pooling = EncoderPooler(out_dims)
         # self.target_token_idx = 0
 
     def speech_file_to_array_fn(batch):
@@ -114,6 +143,12 @@ class AudioEncoder(nn.Module):
         batch["speech"] = resampler(speech_array).squeeze().numpy()
         return batch
 
+    def forward_features(self, x):
+        if self.model_name == 'whisper':
+            audio_features = self.base.embed_audio(x) ### audio encoder features
+        
+        return audio_features
+        
     def forward(self, x):
 
         # if self.model_name == 'wav2vec':
@@ -124,6 +159,8 @@ class AudioEncoder(nn.Module):
         if self.model_name == 'whisper':
             audio_features = self.base.embed_audio(x) ### audio encoder features
         
+        ### pooling
+        audio_features = self.pooling(audio_features)
         audio_embeddings = self.projection(audio_features)
         print(audio_embeddings.shape)
         return audio_embeddings

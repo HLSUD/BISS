@@ -9,7 +9,7 @@ import time
 from models.NN.nle import NLE
 import re
 import numpy as np
-from models.utils import read_config_as_args
+from models.utils import read_config_as_args, save_model
 import torch
 from importlib_resources import files
 import pandas as pd
@@ -27,16 +27,18 @@ class NLEWrapper():
     A class for interfacing NLE model.  
     """
 
-    def __init__(self, model_fp = None, use_cuda=False):
+    def __init__(self, eeg_pretrain_model = None, use_cuda=False):
         self.np_str_obj_array_pattern = re.compile(r'[SaUO]')
         self.file_path = os.path.realpath(__file__)
         self.default_collate_err_msg_format = (
             "default_collate: batch must contain tensors, numpy arrays, numbers, "
             "dicts or lists; found {}")
         self.config_as_str = files('config').joinpath('config.yml').read_text()
-        self.model_fp = model_fp # file path
+        self.eeg_pretrain_model = eeg_pretrain_model # file path
         self.use_cuda = use_cuda
         self.nle, self.args = self.load_nle()
+        if eeg_pretrain_model is None:
+            self.eeg_pretrain_model = self.args.eeg_pretrain_path
 
     def load_nle(self):
         r"""Load NLE model with args from config file"""
@@ -65,10 +67,10 @@ class NLEWrapper():
             args.temperature
             )
 
-        # Load pretrained weights for model
-        if self.model_fp is not None:
-            model_state_dict = torch.load(self.model_fp, map_location=torch.device('cpu'))['model']
-            nle.load_state_dict(model_state_dict)
+        # Load eeg pretrained weights for model
+        if self.eeg_pretrain_model is not None:
+            model_state_dict = torch.load(self.eeg_pretrain_model, map_location=torch.device('cpu'))['model']
+            nle.neuro_encoder.load_state_dict(model_state_dict)
 
         nle.eval()  # set nle in eval mode
     
@@ -204,14 +206,29 @@ class NLEWrapper():
         optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
         print(optimizer)
         # loss_scaler = NativeScaler()
+        ## load eeg model
+        start_epoch = 0
+        model_path = os.path.join(output_path, 'checkpoints', 'checkpoint.pth')
+        if os.path.exists(model_path):
+            checkpoint = torch.load(model_path, map_location='cpu')
+            model_without_ddp.load_state_dict(checkpoint['model'])
+            print("Resume checkpoint %s" % model_path)
+            if 'optimizer' in checkpoint and 'epoch' in checkpoint:
+                optimizer.load_state_dict(checkpoint['optimizer'])
+                start_epoch = checkpoint['epoch'] + 1
+                # if 'scaler' in checkpoint:
+                #     loss_scaler.load_state_dict(checkpoint['scaler'])
+                print("With optim & sched!")
+
 
         if logger is not None:
             logger.watch_model(model,log='all', log_freq=1000)
-
+        best_loss = -1
         loss_list = []
+        val_loss_list = []
         start_time = time.time()
         print('Start Training the NLE ...')
-        for ep in range(args.num_epoch):
+        for ep in range(start_epoch, args.num_epoch):
             
             if torch.cuda.device_count() > 1: 
                 sampler.set_epoch(ep) # to shuffle the data at every epoch
@@ -219,23 +236,27 @@ class NLEWrapper():
             ### revise
             loss = self.train_epoch(model, dataloader, optimizer, device)
             model.eval()
-            loss_list.append(loss)
+            loss_list.append(loss.avg)
 
             with torch.no_grad():
                 valid_loss = self.valid_epoch(model, valid_loader, device)
-        
-            ### log loss info
-            if valid_loss.avg < best_loss:
+                val_loss_list.append(valid_loss.avg)
+                
+            if best_loss == -1:
+                best_loss = valid_loss.max
             
+            if args.local_rank == 0 and valid_loss.avg < best_loss:
                 best_loss = valid_loss.avg
-                torch.save(model.state_dict(), "best.pt")
-                print("Saved Best Model!")
+                # torch.save(model.state_dict(), "best.pt")
+                save_model(args, ep, model_without_ddp, optimizer, os.path.join(output_path, 'checkpoints'))
+                print("NLE saved...")
+
 
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
         print('Training time {}'.format(total_time_str))
         if logger is not None:
-            logger.log('max cor', np.max(loss_list), step=args.num_epoch-1)
+            logger.log('Max train loss', np.max(loss_list), 'Max val loss', np.max(val_loss_list), step=args.num_epoch-1)
             logger.finish()
 
 
