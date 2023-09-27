@@ -8,6 +8,7 @@ checkpoints/CNN*
 data/data
 data/audio
 data/eeg_data
+data/mozila
 data/little_prince_word_info
 results
 events*

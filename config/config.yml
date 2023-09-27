@@ -1,3 +1,4 @@
+### NLE config
 # debug: True
 batch_size: 8
 num_workers: 0

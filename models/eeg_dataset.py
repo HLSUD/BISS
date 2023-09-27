@@ -7,6 +7,7 @@ import numpy as np
 from skimage import io
 from PIL import Image
 from torch.utils.data import Dataset
+import random
 from pathlib import Path
 from scipy.fftpack import rfft, irfft
 from scipy.interpolate import interp1d
@@ -381,6 +382,115 @@ class eeg_pretrain_dataset(Dataset):
                 ret[idx] = self.smooth_signal(ret[idx])
         ret = torch.from_numpy(ret).float()
         return {'eeg': ret } #,
+
+#### speech diffwave dataset
+### audio hz - 16000
+### crop_mel_frames ??? check
+## 1. read tsv
+## 2. load clip 
+## 3. resample to 16000
+class ConditionalDataset(Dataset):
+  def __init__(self, path, set_type = 'train', sr = 16000):
+    super().__init__()
+    tsv_filename = path + set_type + '.tsv'
+    
+    self.sr = sr
+    self.path = path
+    self.data=pd.read_csv(tsv_filename,sep='\t')
+    self.filenames = self.data['path']
+    
+
+  def __len__(self):
+    return len(self.filenames)
+
+  def __getitem__(self, idx):
+    audio_filename = self.path + 'clips/' + self.filenames[idx]
+    # spec_filename = f'{audio_filename}.spec.npy'
+    signal, sr = torchaudio.load(audio_filename)
+    if sr != self.sr:
+        signal = torchaudio.functional.resample(signal, orig_freq=sr, new_freq=self.sr)
+    # spectrogram = np.load(spec_filename)
+    # mel = log_mel_spectrogram(signal[0])
+    return {
+        'audio': signal[0],
+        'spectrogram': None
+    }
+
+class Whisper_Collator:
+    def __init__(self, params):
+        self.params = params
+
+    def collate(self, minibatch):
+        
+        for record in minibatch:
+        
+            # Filter out records that aren't long enough.
+            if len(record['audio']) < self.params.audio_len:
+                # del record['spectrogram']
+                del record['audio']
+                continue
+
+            start = random.randint(0, record['audio'].shape[-1] - self.params.audio_len)
+            end = start + self.params.audio_len
+            record['audio'] = record['audio'][start:end]
+            record['audio'] = np.pad(record['audio'], (0, (end - start) - len(record['audio'])), mode='constant')
+      
+        audio = np.stack([record['audio'] for record in minibatch if 'audio' in record])
+        # audio = pad_or_trim(audio)
+        mel = log_mel_spectrogram(pad_or_trim(audio))
+    
+        return {
+            'audio': torch.from_numpy(audio),
+            'spectrogram': mel
+        }
+
+class Collator:
+  def __init__(self, params):
+    self.params = params
+
+  def collate(self, minibatch):
+    samples_per_frame = self.params.hop_samples
+    for record in minibatch:
+      if self.params.unconditional:
+          # Filter out records that aren't long enough.
+          if len(record['audio']) < self.params.audio_len:
+            # del record['spectrogram']
+            del record['audio']
+            continue
+
+          start = random.randint(0, record['audio'].shape[-1] - self.params.audio_len)
+          end = start + self.params.audio_len
+          record['audio'] = record['audio'][start:end]
+          record['audio'] = np.pad(record['audio'], (0, (end - start) - len(record['audio'])), mode='constant')
+      else:
+          # Filter out records that aren't long enough.
+          record['spectrogram'] = record['spectrogram'].T
+          if len(record['spectrogram']) < self.params.crop_mel_frames:
+            del record['spectrogram']
+            del record['audio']
+            continue
+
+          start = random.randint(0, record['spectrogram'].shape[0] - self.params.crop_mel_frames)
+          end = start + self.params.crop_mel_frames
+          record['spectrogram'] = record['spectrogram'][start:end].T
+
+          start *= samples_per_frame
+          end *= samples_per_frame
+          
+          record['audio'] = record['audio'][start:end]
+          record['audio'] = np.pad(record['audio'], (0, (end-start) - len(record['audio'])), mode='constant')
+
+    audio = np.stack([record['audio'] for record in minibatch if 'audio' in record])
+    if self.params.unconditional:
+        return {
+            'audio': torch.from_numpy(audio),
+            'spectrogram': None,
+        }
+    spectrogram = np.stack([record['spectrogram'] for record in minibatch if 'spectrogram' in record])
+    return {
+        'audio': torch.from_numpy(audio),
+        'spectrogram': torch.from_numpy(spectrogram),
+    }
 
 if __name__ == '__main__':
     eeg_pre = eeg_pretrain_dataset()
