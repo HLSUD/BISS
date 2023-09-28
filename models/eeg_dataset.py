@@ -411,9 +411,11 @@ class ConditionalDataset(Dataset):
         signal = torchaudio.functional.resample(signal, orig_freq=sr, new_freq=self.sr)
     # spectrogram = np.load(spec_filename)
     # mel = log_mel_spectrogram(signal[0])
+    audio = pad_or_trim(signal[0])
+    mel = log_mel_spectrogram(audio)
     return {
-        'audio': signal[0],
-        'spectrogram': None
+        'audio': audio,
+        'spectrogram': mel
     }
 
 class Whisper_Collator:
@@ -423,25 +425,34 @@ class Whisper_Collator:
     def collate(self, minibatch):
         
         for record in minibatch:
-        
             # Filter out records that aren't long enough.
             if len(record['audio']) < self.params.audio_len:
                 # del record['spectrogram']
                 del record['audio']
                 continue
+            if self.params.unconditional: ### sampling from beginning of audio_feature
+                start = random.randint(0, record['audio'].shape[-1] - self.params.audio_len)
+                end = start + self.params.audio_len
+                record['audio'] = record['audio'][start:end]
+                record['audio'] = np.pad(record['audio'], (0, (end - start) - len(record['audio'])), mode='constant')
+            else:
+                start = random.randint(0, record['spectrogram'].shape[-1] - self.params.whisper_len)
+                end = start + self.params.whisper_len
+                record['spectrogram'] = record['spectrogram'][:,start:end]
+                samples_per_frame = self.params.sample_rate // self.params.token_num_per_sec
+                start *= samples_per_frame
+                end *= samples_per_frame
+          
+                record['audio'] = record['audio'][start:end]
+                record['audio'] = np.pad(record['audio'], (0, (end-start) - len(record['audio'])), mode='constant')
 
-            start = random.randint(0, record['audio'].shape[-1] - self.params.audio_len)
-            end = start + self.params.audio_len
-            record['audio'] = record['audio'][start:end]
-            record['audio'] = np.pad(record['audio'], (0, (end - start) - len(record['audio'])), mode='constant')
-      
+
         audio = np.stack([record['audio'] for record in minibatch if 'audio' in record])
         # audio = pad_or_trim(audio)
-        mel = log_mel_spectrogram(pad_or_trim(audio))
     
         return {
             'audio': torch.from_numpy(audio),
-            'spectrogram': mel
+            'spectrogram': record['spectrogram']
         }
 
 class Collator:

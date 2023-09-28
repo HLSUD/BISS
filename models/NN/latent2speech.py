@@ -37,21 +37,6 @@ def Conv1d(*args, **kwargs):
 def silu(x):
   return x * torch.sigmoid(x)
 
-class whis2diffpooling(nn.Module):
-    def __init__(self,in_channel,out_channel,pool_method='linear') -> None:
-        super().__init__()
-        self.pool_method = pool_method
-        self.out_channel = out_channel
-        self.in_channel = in_channel
-        if pool_method == 'linear':
-            self.projection = Linear(in_channel, out_channel)
-    
-    def forward(self, x):
-        x = x.transpose(1,2)
-        x = self.projection(x)
-        x = x.transpose(1,2)
-
-        return x
 
 class DiffusionEmbedding(nn.Module):
   def __init__(self, max_steps):
@@ -85,12 +70,41 @@ class DiffusionEmbedding(nn.Module):
     table = torch.cat([torch.sin(table), torch.cos(table)], dim=1)
     return table
 
+class SpectrogramDownsampler(nn.Module):
+  def __init__(self, in_channel):
+    super().__init__()
+    self.conv1 = Conv1d(in_channel, in_channel//2, 1)
+  def forward(self, x):
+      x = self.conv1(x)
+      x = F.leaky_relu(x, 0.4)
+      return x
+
+class whis2diffpooling(nn.Module):
+    def __init__(self,in_channel,out_channel,pool_method='linear') -> None:
+        super().__init__()
+        self.pool_method = pool_method
+        self.out_channel = out_channel
+        self.in_channel = in_channel
+        if pool_method == 'linear':
+            self.projection =  nn.ModuleList([Linear(in_channel, out_channel)])
+        if pool_method == 'conv':
+            self.projection = nn.ModuleList([
+                SpectrogramDownsampler(in_channel//pow(2,i))
+                for i in range(in_channel//out_channel)
+            ])
+    
+    def forward(self, x):
+        # x = x.transpose(1,2)
+        for layer in self.projection:
+            x = layer(x)
+        x = x.transpose(1,2)
+        return x
 
 class SpectrogramUpsampler(nn.Module):
   def __init__(self, n_mels):
     super().__init__()
-    self.conv1 = ConvTranspose2d(1, 1, [3, 11], stride=[1, 5], padding=[1, 3])
-    self.conv2 = ConvTranspose2d(1, 1,  [3, 11], stride=[1, 5], padding=[1, 3])
+    self.conv1 = ConvTranspose2d(1, 1, [3, 32], stride=[1, 16], padding=[1, 8])
+    self.conv2 = ConvTranspose2d(1, 1,  [3, 40], stride=[1, 20], padding=[1, 10])
 
   def forward(self, x):
     x = torch.unsqueeze(x, 1)
@@ -155,6 +169,10 @@ class DiffWave(nn.Module):
         ResidualBlock(params.n_mels, params.residual_channels, 2**(i % params.dilation_cycle_length), uncond=params.unconditional)
         for i in range(params.residual_layers)
     ])
+    self.downsample_layers = nn.ModuleList([
+        SpectrogramDownsampler(params.num_channel//pow(2,i))
+        for i in range(int(params.num_channel//params.n_mels))
+    ])
     self.skip_projection = Conv1d(params.residual_channels, params.residual_channels, 1)
     self.output_projection = Conv1d(params.residual_channels, 1, 1)
     nn.init.zeros_(self.output_projection.weight)
@@ -167,6 +185,9 @@ class DiffWave(nn.Module):
     x = F.relu(x)
 
     diffusion_step = self.diffusion_embedding(diffusion_step)
+    if self.params.n_mels != self.params.num_channel:
+        for layer in self.downsample_layers:
+            spectrogram = layer(spectrogram)
     if self.spectrogram_upsampler: # use conditional model
       spectrogram = self.spectrogram_upsampler(spectrogram)
 

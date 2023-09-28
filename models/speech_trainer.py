@@ -19,7 +19,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__),'../'))
 import numpy as np
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
@@ -34,7 +34,7 @@ from models.eeg_dataset import Whisper_Collator, ConditionalDataset
 from models.whisper.__init__ import load_model
 from config.wave_config import Config_Wave
 from argparse import ArgumentParser
-
+import random
 
 def _nested_map(struct, map_fn):
   if isinstance(struct, tuple):
@@ -54,7 +54,7 @@ def from_path(data_dirs, params, is_distributed=False):
         dataset,
         batch_size=params.batch_size,
         shuffle=not is_distributed,
-        collate_fn=Whisper_Collator(params).collate,
+        # collate_fn=Whisper_Collator(params).collate,
         num_workers=os.cpu_count(),
         sampler=DistributedSampler(dataset) if is_distributed else None,
         pin_memory=True,
@@ -70,8 +70,9 @@ class WhisperDiffWaveLearner:
     self.dataset = dataset
     self.optimizer = optimizer
     self.params = params
-
-    self.pooling = whis2diffpooling(self.params.whisper_len, self.params.num_channel)
+    if params.audio_model == 'base':
+        in_channel = 512
+    self.pooling = whis2diffpooling(in_channel, self.params.num_channel)
 
     self.autocast = torch.cuda.amp.autocast(enabled=kwargs.get('fp16', False))
     self.scaler = torch.cuda.amp.GradScaler(enabled=kwargs.get('fp16', False))
@@ -167,10 +168,20 @@ class WhisperDiffWaveLearner:
     ### preprocess
     # print('getting audio features...')
     audio_features = self.whis_model.embed_audio(spectrogram)
-    audio_features = audio_features[:,:self.params.whisper_len]
-    ### downsampling Conv layer/ linear 128*xxx
+
+    ### random start position of audio feature
+    start = random.randint(0, audio_features.shape[-1] - self.params.whisper_len)
+    end = start+self.params.whisper_len
+    audio_features = audio_features[:,start:end]
+    samples_per_frame = self.params.sample_rate // self.params.token_num_per_sec
+    start *= samples_per_frame
+    end *= samples_per_frame
+    audio = audio[:,start:end]
+    audio = F.pad(audio, (0,(end-start) - audio.shape[-1]), "constant", 0)
+
     # print('projecting...')
     audio_features = self.pooling(audio_features)
+
     # print('audio genrating...')
     N, T = audio.shape
     device = audio.device
@@ -182,7 +193,7 @@ class WhisperDiffWaveLearner:
       noise_scale_sqrt = noise_scale**0.5
       noise = torch.randn_like(audio)
       noisy_audio = noise_scale_sqrt * audio + (1.0 - noise_scale)**0.5 * noise
-
+      
       predicted = self.diff_model(noisy_audio, t, audio_features)
       loss = self.loss_fn(noise, predicted.squeeze(1))
 
