@@ -61,7 +61,7 @@ def from_path(data_dirs, params, is_distributed=False):
         drop_last=True)
 
 class WhisperDiffWaveLearner:
-  def __init__(self, model_dir, diff_model, whis_model, dataset, optimizer, params, *args, **kwargs):
+  def __init__(self, model_dir, diff_model, whis_model, dataset, optimizer, params, pooling, *args, **kwargs):
     os.makedirs(model_dir, exist_ok=True)
     self.model_dir = model_dir
     self.diff_model = diff_model
@@ -70,9 +70,12 @@ class WhisperDiffWaveLearner:
     self.dataset = dataset
     self.optimizer = optimizer
     self.params = params
-    if params.audio_model == 'base':
-        in_channel = 512
-    self.pooling = whis2diffpooling(in_channel, self.params.num_channel)
+    if pooling is None:
+        if params.audio_model == 'base':
+            in_channel = 512
+        self.pooling = whis2diffpooling(in_channel, self.params.num_channel)
+    else:
+        self.pooling = pooling
 
     self.autocast = torch.cuda.amp.autocast(enabled=kwargs.get('fp16', False))
     self.scaler = torch.cuda.amp.GradScaler(enabled=kwargs.get('fp16', False))
@@ -215,11 +218,11 @@ class WhisperDiffWaveLearner:
     self.summary_writer = writer
 
 
-def _train_impl(replica_id, diff_model, whisper_model, dataset, args, params):
+def _train_impl(replica_id, diff_model, whisper_model, dataset, args, params, pooling=None):
   torch.backends.cudnn.benchmark = True
   opt = torch.optim.Adam(diff_model.parameters(), lr=params.learning_rate)
 
-  learner = WhisperDiffWaveLearner(args.model_dir, diff_model, whisper_model, dataset, opt, params, fp16=args.fp16)
+  learner = WhisperDiffWaveLearner(args.model_dir, diff_model, whisper_model, dataset, opt, params, pooling, fp16=args.fp16)
   learner.is_master = (replica_id == 0)
   learner.restore_from_checkpoint()
   learner.train(max_steps=args.max_steps)
@@ -253,9 +256,18 @@ def train_distributed(replica_id, replica_count, port, args, params):
   dataset = from_path(params.data_dirs, params, is_distributed=True)
   device = torch.device('cuda', replica_id)
   torch.cuda.set_device(device)
-  model = DiffWave(params).to(device)
-  model = DistributedDataParallel(model, device_ids=[replica_id])
-  _train_impl(replica_id, model, dataset, args, params)
+
+  whisper_model = load_model(params.audio_model).to(device)
+  for p in whisper_model.parameters():
+    p.requires_grad = params.audio_trainable
+  if params.audio_model == 'base':
+    in_channel = 512
+  pooling = whis2diffpooling(in_channel, params.num_channel).to(device)
+  diff_model = DiffWave(params).to(device)
+  diff_model = DistributedDataParallel(diff_model, device_ids=[replica_id])
+  whisper_model = DistributedDataParallel(whisper_model, device_ids=[replica_id])
+  pooling = DistributedDataParallel(pooling, device_ids=[replica_id])
+  _train_impl(replica_id, diff_model, whisper_model, dataset, args, params, pooling)
 
 
 
@@ -267,6 +279,9 @@ def _get_free_port():
 
 def main(args):
   params = Config_Wave()
+  params.batch_size = args.batch_size
+  params.learning_rate = args.learning_rate
+  
   replica_count = torch.cuda.device_count()
   if replica_count > 1:
     if params.batch_size % replica_count != 0:
@@ -286,6 +301,10 @@ if __name__ == '__main__':
 #       help='space separated list of directories from which to read .wav files for training')
   parser.add_argument('--max_steps', default=None, type=int,
       help='maximum number of training steps')
+  parser.add_argument('--batch_size', default=16, type=int,
+      help='batch size')
+  parser.add_argument('--learning_rate', default=2e-4, type=float,
+      help='learning rate')
   parser.add_argument('--fp16', action='store_true', default=False,
       help='use 16-bit floating point operations for training')
   main(parser.parse_args())
