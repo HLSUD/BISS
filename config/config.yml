@@ -1,59 +1,87 @@
-import torch
+# debug: True
+# image_path: "C:/Moein/AI/Datasets/Flicker-8k/Images"
+# captions_path: "C:/Moein/AI/Datasets/Flicker-8k"
+# batch_size: 8
+# num_workers: 0
+# lr: 1e-3
+# weight_decay: 1e-3
+# patience: 2
+# factor: 0.5
+# epochs: 5
+# device: torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-debug: True
-image_path: "C:/Moein/AI/Datasets/Flicker-8k/Images"
-captions_path: "C:/Moein/AI/Datasets/Flicker-8k"
+# model_name: 'resnet50'
+# image_embedding: 2048
+# text_encoder_model: "distilbert-base-uncased"
+# text_embedding: 768
+# text_tokenizer: "distilbert-base-uncased"
+# max_length: 200
+
+# pretrained: False # for both image encoder and text encoder
+# trainable: False # for both image encoder and text encoder
+# temperature: 1.0
+
+# # image size
+# size: 224
+
+# # for projection head; used for both image and text encoders
+# num_projection_layers: 1
+# projection_dim: 256 
+# dropout: 0.1
+
+### NLE config
+# debug: True
 batch_size: 8
 num_workers: 0
-lr: 1e-3
-weight_decay: 1e-3
+lr: 0.001
+weight_decay: 0.001
 patience: 2
 factor: 0.5
-epochs: 5
+num_epoch: 5
 device: torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-model_name: 'resnet50'
-image_embedding: 2048
-text_encoder_model: "distilbert-base-uncased"
-text_embedding: 768
-text_tokenizer: "distilbert-base-uncased"
-max_length: 200
-
+local_rank: 0
 pretrained: False # for both image encoder and text encoder
-trainable: False # for both image encoder and text encoder
+trainable: False # for audio encoder
 temperature: 1.0
-
-# image size
-size: 224
+root_path: "."
+output_path: "."
+seed: 2023
 
 # for projection head; used for both image and text encoders
 num_projection_layers: 1
-projection_dim: 256 
+out_dims: 256
 dropout: 0.1
+# temperature: 0.003
 
 # TEXT ENCODER CONFIG
-text_model: 'bert-base-uncased'
+text_model: "bert-base-uncased"
 text_len: 100
-transformer_embed_dim: 768
-freeze_text_encoder_weights: True
+# transformer_embed_dim: 768
+# freeze_text_encoder_weights: True
+text_cl: "bert"
 
 # AUDIO ENCODER CONFIG
-audioenc_name: 'Cnn14'
-out_emb: 2048
-sampling_rate: 44100
+audioenc_name: "whisper"
+# out_emb: 2048
+#sampling_rate: 44100
+#fmin: 50
+#fmax: 14000
+#n_fft: 1028
+#hop_size: 100
+#mel_bins: 64
+#window_size: 1024
 duration: 5
-fmin: 50
-fmax: 14000
-n_fft: 1028
-hop_size: 320
-mel_bins: 64
-window_size: 1024
+audio_model: "large"
+processor_model: "openai/whisper-base.en"
+transformer_embed_dim: 1280
 
-# PROJECTION SPACE CONFIG 
-d_proj: 1024
-temperature: 0.003
-
-# TRAINING AND EVALUATION CONFIG
-num_classes: 527
-batch_size: 1024
-demo: False
+# EEG ENCODER CONFIG
+hop_size: 100
+smooth: True # smooth eeg signals
+embed_dim: 1024
+channels: 128
+timepoints: 512
+depth: 24
+heads: 16
+eeg_pretrain_path: "./checkpoints/eeg_pretrain.pth"

@@ -96,8 +96,7 @@ def get_args_parser():
     
     # distributed training parameters
     parser.add_argument('--local_rank', type=int)
-
-                        
+        
     return parser
 
 
@@ -176,6 +175,7 @@ def main(config):
 
     model_path = os.path.join(output_path, 'checkpoints', 'checkpoint.pth')
     start_epoch = 0
+    
     if os.path.exists(model_path):
         checkpoint = torch.load(model_path, map_location='cpu')
         model_without_ddp.load_state_dict(checkpoint['model'])
@@ -195,6 +195,7 @@ def main(config):
 
     print(f"Add cor_loss: {config.add_cor_loss}")
     print(f"Add seg_cor_loss: {config.add_seg_cor_loss}")
+
     for ep in range(start_epoch, config.num_epoch):
         print(f"Start Epoch: {ep}")
         if torch.cuda.device_count() > 1: 

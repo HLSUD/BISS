@@ -1,1 +1,0 @@
-# https://github.com/moein-shariatnia/OpenAI-CLIP

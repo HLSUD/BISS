@@ -1,4 +1,5 @@
 from __future__ import print_function, division
+from models.whisper.audio import log_mel_spectrogram, pad_or_trim
 import os
 import torch
 import pandas as pd
@@ -6,13 +7,17 @@ import numpy as np
 from skimage import io
 from PIL import Image
 from torch.utils.data import Dataset
+import random
 from pathlib import Path
 from scipy.fftpack import rfft, irfft
 from scipy.interpolate import interp1d
+
+import torchaudio
 from scipy.signal import savgol_filter
 from typing import Callable, Optional, Tuple, Union
 # Ignore warnings
 import warnings
+from models.utils import smooth_signal
 warnings.filterwarnings("ignore")
 
 
@@ -106,42 +111,199 @@ class coch_set(Dataset):
             # y = np.append(y,[sum_v], axis=0)
         return y
 
+
+def eeg_interp_repeat(data, data_chan, data_len):
+    if data.shape[-1] > data_len: 
+        idx = np.random.randint(0, int(data.shape[-1] - data_len)+1)
+
+        data = data[:, idx: idx+data_len]
+    else: # interp1d
+        x = np.linspace(0, 1, data.shape[-1])
+        x2 = np.linspace(0, 1, data_len)
+        f = interp1d(x, data)
+        data = f(x2)
+    ret = np.zeros((data_chan, data_len))
+    if (data_chan > data.shape[-2]): # replicate
+        for i in range((data_chan//data.shape[-2])):
+
+            ret[i * data.shape[-2]: (i+1) * data.shape[-2], :] = data
+        if data_chan % data.shape[-2] != 0:
+
+            ret[ -(data_chan%data.shape[-2]):, :] = data[: (data_chan%data.shape[-2]), :]
+    elif(data_chan < data.shape[-2]):
+        idx2 = np.random.randint(0, int(data.shape[-2] - data_chan)+1)
+        ret = data[idx2: idx2+data_chan, :]
+    # print(ret.shape)
+    elif(data_chan == data.shape[-2]):
+        ret = data
+    ret = ret/10 # reduce an order
+    return ret
+
+abnormal_data_idx = [2,10,13,24,25,34,39,52,54,60,63,67,68,70,71,75,76,80,86,87,28,79,84]
+
+def remove_bad_data_paths(indices, root_path, input_paths):
+    for i in indices:
+        bad_paths = [root_path + 'subj' + str(i) +'_mixed_f.npy',
+                     root_path + 'subj' + str(i) +'_mixed_m.npy',
+                     root_path + 'subj' + str(i) +'_single_f.npy',
+                     root_path + 'subj' + str(i) +'_single_m.npy']
+        for bp in bad_paths:
+            if bp in input_paths:
+                input_paths.remove(bp)
+    return input_paths
+
 # ------------------------------------------------------------------------------
+def split_dataset(eeg_path, hop_size = 50, win_size = 500, data_len=512, data_chan=128, time_pts=60000, freq = 100):
+    """
+    split data into train, val, test datasets 8:1:1
+    """
+    train_file = 'data/train_idx_name.csv'
+    val_file = 'data/val_idx_name.csv'
+    test_file = 'data/test_idx_name.csv'
+    if Path(train_file).is_file() and Path(val_file).is_file() and Path(test_file).is_file():
+        print('Train, val, test datasets have been created...')
+        return
+    
+
+    eeg_paths = [str(f) for f in sorted(Path(eeg_path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
+    eeg_paths = remove_bad_data_paths(abnormal_data_idx,eeg_path,eeg_paths)
+    assert len(eeg_paths) != 0, 'No data found'
+
+    num_pitchs = (time_pts - win_size) // hop_size + 1
+    num_items = num_pitchs * len(eeg_paths)
+
+    num_train = int(num_items * 0.8)
+    num_val = int(num_items * 0.1)
+    num_test = int(num_items * 0.1)
+    idx = np.arange(num_items)
+    np.random.shuffle(idx)
+    train_idx = idx[:num_train]
+    val_idx = idx[num_train:num_val+num_train]
+    test_idx = idx[num_val+num_train:]
+
+    df_train = pd.DataFrame(columns=['eeg_name','inner_idx'])
+    df_val = pd.DataFrame(columns=['eeg_name','inner_idx'])
+    df_test = pd.DataFrame(columns=['eeg_name','inner_idx'])
+
+    for idx in train_idx:
+        eeg_idx = idx // num_pitchs
+        inner_idx = idx - eeg_idx * num_pitchs
+        path = eeg_paths[eeg_idx]
+        df_train.loc[len(df_train.index)] = [path, inner_idx]
+    for idx in val_idx:
+        eeg_idx = idx // num_pitchs
+        inner_idx = idx - eeg_idx * num_pitchs
+        path = eeg_paths[eeg_idx]
+        df_val.loc[len(df_val.index)] = [path, inner_idx]
+    for idx in test_idx:
+        eeg_idx = idx // num_pitchs
+        inner_idx = idx - eeg_idx * num_pitchs
+        path = eeg_paths[eeg_idx]
+        df_test.loc[len(df_test.index)] = [path, inner_idx]
+
+    df_train.to_csv(train_file, index=False)
+    df_val.to_csv(val_file, index=False)
+    df_test.to_csv(test_file, index=False)
+    
+    return
+
+#### smooth signals
+def smooth_signal(signal, weight_threshold=100, keep_ratio=0.05, savgol=True, win=7, poly=1):
+        # to frequent domain
+        w = rfft(signal)
+        spectrum = w**2
+        # remove f with small value
+        cutoff_idx = spectrum < (spectrum.max()/weight_threshold)
+        if (cutoff_idx.sum() / len(cutoff_idx)) > (1-keep_ratio):
+            idx = int((1-keep_ratio) * signal.shape[-1])
+            cutoff_idx = spectrum < np.sort(spectrum)[idx]
+        w2 = w.copy()
+        w2[cutoff_idx] = 0
+
+        s_smooth = irfft(w2)
+        # Savitzky-Golay filter
+        if savgol:
+            s_smooth = savgol_filter(s_smooth, win, poly, mode='nearest')
+        return s_smooth
+
 #### Contrastive
 class NLEDataset(torch.utils.data.Dataset):
-    def __init__(self, eeg_file, captions, tokenizer, eeg_merge_size=30, eeg_hop_size = 1, output_type = 0, transforms = None):
+    def __init__(self, eeg_path = './data/eeg_data/', audio_path = './data/audio_data/', csv_file = './data/train_idx_path.csv', hop_size = 50, smooth = True, win_size = 500, data_len=512, data_chan=128, time_pts=60000, freq = 100, sr = 16000, transforms = None):
         """
         image_filenames and cpations must have the same length; so, if there are
         multiple captions for each image, the image_filenames must have repetitive
         file names 
         """
 
-        self.eeg_data = np.load(eeg_file)
-        self.eeg_merge_size = eeg_merge_size
-        self.hop_size = eeg_hop_size
-        self.captions = list(captions)
-        self.encoded_captions = tokenizer(
-            list(captions), padding=True, truncation=True, max_length=CFG.max_length
-        )
+        # self.eeg_paths = [str(f) for f in sorted(Path(eeg_path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
+        # self.audio_paths = [str(f) for f in sorted(Path(audio_path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
+        ## remove bad data path from input_path
+        # self.eeg_paths = remove_bad_data_paths(abnormal_data_idx,eeg_path,self.eeg_paths)
+        # assert len(self.eeg_paths) != 0, 'No data found'
+
+        self.audio_path = audio_path
+        self.eeg_path = eeg_path
+        self.data_info = pd.read_csv(csv_file)
+        
+        ### length and channels
+        self.data_len  = data_len
+        self.data_chan = data_chan
+
+        self.win_size = win_size
+        self.hop_size = hop_size
+        self.freq = freq
+        self.sr = sr # audio sample rate
+        self.smooth = smooth
+
+        self.num_pitchs = (time_pts - self.win_size) // self.hop_size + 1
+
+        print(f"Window size: {self.win_size}")
+        print(f"Hop size: {self.hop_size}")
+        print(f"Num of pitches: {self.num_pitchs}")
+        print(f"Smooth: {self.smooth}")
         self.transforms = transforms
 
-    def __getitem__(self, idx):
-        item = {
-            key: torch.tensor(values[idx])
-            for key, values in self.encoded_captions.items()
-        }
+    def __getitem__(self, index):
+        # eeg_idx = index // self.num_pitchs
+        # inner_idx = index - eeg_idx * self.num_pitchs
+        # data_path = self.input_paths[eeg_idx]
+        eeg_path = self.data_info.iloc[index, 0]
+        inner_idx = self.data_info.iloc[index, 1]
+        eeg_data = np.load(eeg_path)
+        
+        # load audio
+        audio_array = None
+        a_path = ''
+        if 'single_m' in eeg_path:
+            a_path = self.audio_path + 'male_s4.wav'
+        elif 'single_f' in eeg_path:
+            a_path = self.audio_path + 'female_s1.wav'
+        elif 'mix' in eeg_path:
+            a_path = self.audio_path + 'mix_s1s4.wav'
+        else:
+            print(f"EEG name error: {eeg_path}")
+        audio, sr = torchaudio.load(a_path)
+        if sr != self.sr:
+            audio = torchaudio.functional.resample(audio, orig_freq=sr, new_freq=self.sr)
+        start_loc = int(inner_idx * self.hop_size / self.freq * self.sr)
+        end_loc = int(start_loc + self.win_size / self.freq * self.sr)
+        audio_array = audio[0,start_loc:end_loc] #  to mono audio
+        audio_array = pad_or_trim(audio_array)
+        mel = log_mel_spectrogram(audio_array) ## check 
 
-        image = cv2.imread(f"{CFG.image_path}/{self.image_filenames[idx]}")
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = self.transforms(image=image)['image']
-        item['image'] = torch.tensor(image).permute(2, 0, 1).float()
-        item['caption'] = self.captions[idx]
-
-        return item
+        start_loc = inner_idx * self.hop_size
+        data = eeg_data[:,start_loc:(start_loc+self.win_size)]
+        
+        ret = eeg_interp_repeat(data, self.data_chan, self.data_len)
+        for i in range(data.shape[-2]):
+            ret[i] = smooth_signal(ret[i])
+        
+        ret = torch.from_numpy(ret).float()
+        return {'eeg': ret, 'audio': mel}
 
 
     def __len__(self):
-        return len(self.captions)
+        return len(self.data_info)
 
 # -----------------------------------------------------------
 # MAE
@@ -166,7 +328,7 @@ def is_npy_ext(fname: Union[str, Path]) -> bool:
     return f'{ext}' == 'npy'# type: ignore
 
 class eeg_pretrain_dataset(Dataset):
-    def __init__(self, path='./data/eeg_data/', hop_size=10, smooth=False):
+    def __init__(self, path='./data/eeg_data/',hop_size = 50, smooth=False, win_size = 500, data_len=512, data_chan=128, time_pts=60000):
         super(eeg_pretrain_dataset, self).__init__()
         data = []
         images = []
@@ -177,13 +339,15 @@ class eeg_pretrain_dataset(Dataset):
         self.input_paths = remove_bad_data_paths(abnormal_data_idx,path,self.input_paths)
         assert len(self.input_paths) != 0, 'No data found'
         ### length and channels
-        self.data_len  = 512
-        self.data_chan = 128
-        self.smooth = smooth
 
-        self.win_size = 500
+        self.data_len  = data_len
+        self.data_chan = data_chan
+
+        self.win_size = win_size
         self.hop_size = hop_size
-        self.num_pitchs = (60000 - self.win_size) // self.hop_size + 1
+        self.num_pitchs = (time_pts - self.win_size) // self.hop_size + 1
+        # print(len(self.input_paths))
+        self.smooth = smooth
         print(f"Num of input: {len(self.input_paths)}")
         print(f"Window size: {self.win_size}")
         print(f"Hop size: {self.hop_size}")
@@ -223,36 +387,135 @@ class eeg_pretrain_dataset(Dataset):
         start_loc = inner_idx * self.hop_size
         data = eeg_data[:,start_loc:(start_loc+self.win_size)]
         # print(data.shape)
-        if data.shape[-1] > self.data_len: 
-            idx = np.random.randint(0, int(data.shape[-1] - self.data_len)+1)
-
-            data = data[:, idx: idx+self.data_len]
-        else: # interp1d
-            x = np.linspace(0, 1, data.shape[-1])
-            x2 = np.linspace(0, 1, self.data_len)
-            f = interp1d(x, data)
-            data = f(x2)
-        ret = np.zeros((self.data_chan, self.data_len))
-        if (self.data_chan > data.shape[-2]): # replicate
-            for i in range((self.data_chan//data.shape[-2])):
-
-                ret[i * data.shape[-2]: (i+1) * data.shape[-2], :] = data
-            if self.data_chan % data.shape[-2] != 0:
-
-                ret[ -(self.data_chan%data.shape[-2]):, :] = data[: (self.data_chan%data.shape[-2]), :]
-        elif(self.data_chan < data.shape[-2]):
-            idx2 = np.random.randint(0, int(data.shape[-2] - self.data_chan)+1)
-            ret = data[idx2: idx2+self.data_chan, :]
-        # print(ret.shape)
-        elif(self.data_chan == data.shape[-2]):
-            ret = data
-        ret = ret/10 # reduce an order
+        ret = eeg_interp_repeat(data, self.data_chan, self.data_len)
+        for i in range(data.shape[-2]):
+            ret[i] = smooth_signal(ret[i])
         # torch.tensor()
         if self.smooth:
             for idx in range(len(ret)):
                 ret[idx] = self.smooth_signal(ret[idx])
         ret = torch.from_numpy(ret).float()
         return {'eeg': ret } #,
+
+#### speech diffwave dataset
+### audio hz - 16000
+### crop_mel_frames ??? check
+## 1. read tsv
+## 2. load clip 
+## 3. resample to 16000
+class ConditionalDataset(Dataset):
+  def __init__(self, path, set_type = 'train', sr = 16000):
+    super().__init__()
+    tsv_filename = path + set_type + '.tsv'
+    
+    self.sr = sr
+    self.path = path
+    self.data=pd.read_csv(tsv_filename,sep='\t')
+    self.filenames = self.data['path']
+    
+
+  def __len__(self):
+    return len(self.filenames)
+
+  def __getitem__(self, idx):
+    audio_filename = self.path + 'clips/' + self.filenames[idx]
+    # spec_filename = f'{audio_filename}.spec.npy'
+    signal, sr = torchaudio.load(audio_filename)
+    if sr != self.sr:
+        signal = torchaudio.functional.resample(signal, orig_freq=sr, new_freq=self.sr)
+    # spectrogram = np.load(spec_filename)
+    # mel = log_mel_spectrogram(signal[0])
+    audio = pad_or_trim(signal[0])
+    mel = log_mel_spectrogram(audio)
+    return {
+        'audio': audio,
+        'spectrogram': mel
+    }
+
+class Whisper_Collator:
+    def __init__(self, params):
+        self.params = params
+
+    def collate(self, minibatch):
+        
+        for record in minibatch:
+            # Filter out records that aren't long enough.
+            if len(record['audio']) < self.params.audio_len:
+                # del record['spectrogram']
+                del record['audio']
+                continue
+            if self.params.unconditional: ### sampling from beginning of audio_feature
+                start = random.randint(0, record['audio'].shape[-1] - self.params.audio_len)
+                end = start + self.params.audio_len
+                record['audio'] = record['audio'][start:end]
+                record['audio'] = np.pad(record['audio'], (0, (end - start) - len(record['audio'])), mode='constant')
+            else:
+                start = random.randint(0, record['spectrogram'].shape[-1] - self.params.whisper_len)
+                end = start + self.params.whisper_len
+                record['spectrogram'] = record['spectrogram'][:,start:end]
+                samples_per_frame = self.params.sample_rate // self.params.token_num_per_sec
+                start *= samples_per_frame
+                end *= samples_per_frame
+          
+                record['audio'] = record['audio'][start:end]
+                record['audio'] = np.pad(record['audio'], (0, (end-start) - len(record['audio'])), mode='constant')
+
+
+        audio = np.stack([record['audio'] for record in minibatch if 'audio' in record])
+        # audio = pad_or_trim(audio)
+    
+        return {
+            'audio': torch.from_numpy(audio),
+            'spectrogram': record['spectrogram']
+        }
+
+class Collator:
+  def __init__(self, params):
+    self.params = params
+
+  def collate(self, minibatch):
+    samples_per_frame = self.params.hop_samples
+    for record in minibatch:
+      if self.params.unconditional:
+          # Filter out records that aren't long enough.
+          if len(record['audio']) < self.params.audio_len:
+            # del record['spectrogram']
+            del record['audio']
+            continue
+
+          start = random.randint(0, record['audio'].shape[-1] - self.params.audio_len)
+          end = start + self.params.audio_len
+          record['audio'] = record['audio'][start:end]
+          record['audio'] = np.pad(record['audio'], (0, (end - start) - len(record['audio'])), mode='constant')
+      else:
+          # Filter out records that aren't long enough.
+          record['spectrogram'] = record['spectrogram'].T
+          if len(record['spectrogram']) < self.params.crop_mel_frames:
+            del record['spectrogram']
+            del record['audio']
+            continue
+
+          start = random.randint(0, record['spectrogram'].shape[0] - self.params.crop_mel_frames)
+          end = start + self.params.crop_mel_frames
+          record['spectrogram'] = record['spectrogram'][start:end].T
+
+          start *= samples_per_frame
+          end *= samples_per_frame
+          
+          record['audio'] = record['audio'][start:end]
+          record['audio'] = np.pad(record['audio'], (0, (end-start) - len(record['audio'])), mode='constant')
+
+    audio = np.stack([record['audio'] for record in minibatch if 'audio' in record])
+    if self.params.unconditional:
+        return {
+            'audio': torch.from_numpy(audio),
+            'spectrogram': None,
+        }
+    spectrogram = np.stack([record['spectrogram'] for record in minibatch if 'spectrogram' in record])
+    return {
+        'audio': torch.from_numpy(audio),
+        'spectrogram': torch.from_numpy(spectrogram),
+    }
 
 if __name__ == '__main__':
     eeg_pre = eeg_pretrain_dataset()

@@ -77,7 +77,11 @@ def seg_corr(output, target, win = 64):
 def train_one_epoch(model, data_loader, optimizer, device, epoch, 
                     loss_scaler, logger=None, tensorboard_writer=None,
                     config=None, start_time=None, model_without_ddp=None, 
+<<<<<<< HEAD
                     img_feature_extractor=None, preprocess=None, add_cor_loss=False, add_seg_cor_loss=False):
+=======
+                    img_feature_extractor=None, preprocess=None, add_cor_loss=False):
+>>>>>>> aa12429e88388664d2801a2cb61344a936926ac4
     model.train(True)
     optimizer.zero_grad()
 
@@ -120,21 +124,51 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
             pred = pred.detach()
             samples = samples.detach()
             pred = model_without_ddp.unpatchify(pred)
+<<<<<<< HEAD
             # cor = torch.mean(torch.tensor([torch.corrcoef(torch.cat([p[0].unsqueeze(0), s[0].unsqueeze(0)],axis=0))[0,1] for p, s in zip(pred, samples)]))
             cor = [correlation(p,s).mean() for p, s in zip(pred, samples)]
             cor = torch.mean(torch.tensor(cor))
             seg_cor = [seg_corr(p, s) for p, s in zip(pred, samples)]
+=======
+            def correlation(output, target):
+                cor = None
+                output_sub = output - torch.mean(output)
+                target_sub = target - torch.mean(target)
+
+                output_var = torch.sum((output - torch.mean(output))**2)
+                target_var = torch.sum((target - torch.mean(target))**2)
+                if output_var*target_var == 0:
+            #         print("Error: NAN, var equals to 0")
+                    cor = torch.tensor([0.0],dtype=output.dtype)
+                else:
+                    cor = torch.sum(output_sub*target_sub)/torch.sqrt(output_var*target_var)
+                return cor
+
+            def seg_corr(output, target, win = 64):
+                seg_corr = None
+                num_seg = (output.shape[-1] + 1) // win
+                
+                seg_corr =  torch.tensor([correlation(output[i*win:(i+1)*win],target[i*win:(i+1)*win]) for i in range(num_seg)])
+                return torch.mean(seg_corr)
+            cor = [[correlation(c_p, c_s) for c_p, c_s in zip(p,s)] for p, s in zip(pred, samples)]
+            cor = torch.mean(torch.tensor(cor))
+            seg_cor = [[seg_corr(c_p, c_s) for c_p, c_s in zip(p,s)] for p, s in zip(pred, samples)]
+>>>>>>> aa12429e88388664d2801a2cb61344a936926ac4
             seg_cor = torch.mean(torch.tensor(seg_cor))
 
             if add_cor_loss:
                 cor_loss = 1 - cor
             else:
                 cor_loss = torch.tensor(0)
+<<<<<<< HEAD
             if add_seg_cor_loss:
                 seg_cor_loss = 1 - seg_cor
             else:
                 seg_cor_loss = torch.tensor(0)
             final_loss = loss + cor_loss + seg_cor_loss
+=======
+            final_loss = loss + cor_loss
+>>>>>>> aa12429e88388664d2801a2cb61344a936926ac4
 
         loss_value = loss.item()
 
@@ -150,8 +184,11 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
         total_loss.append(loss_value)
         total_cor.append(cor.item())
         total_cor_loss.append(cor_loss.item())
+<<<<<<< HEAD
         total_seg_cor.append(seg_cor.item())
         total_seg_cor_loss.append(seg_cor_loss.item())
+=======
+>>>>>>> aa12429e88388664d2801a2cb61344a936926ac4
 
         # wandb.log({"loss": loss_value, "correlation": cor})
         if device == torch.device('cuda:0'):
@@ -160,28 +197,43 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
                 f'[{epoch}] [{data_iter_step}/{len(data_loader)}]', 
                 'loss:', np.mean(total_loss), 
                 'cor_loss:', np.mean(total_cor_loss), 
+<<<<<<< HEAD
                 'seg_cor_loss:', np.mean(total_seg_cor_loss), 
                 'lr:', lr, 
                 'cor', np.mean(total_cor), 
                 'seg_cor', np.mean(total_seg_cor), 
+=======
+                'lr:', lr, 
+                'cor', np.mean(total_cor), 
+>>>>>>> aa12429e88388664d2801a2cb61344a936926ac4
                 'time', (time.time() - start_time)
             )
             tensorboard_writer.add_scalar('loss', np.mean(total_loss), data_iter_step)
             tensorboard_writer.add_scalar('cor_loss', np.mean(total_cor_loss), data_iter_step)
+<<<<<<< HEAD
             tensorboard_writer.add_scalar('seg_cor_loss', np.mean(total_seg_cor_loss), data_iter_step)
             tensorboard_writer.add_scalar('lr', lr, data_iter_step)
             tensorboard_writer.add_scalar('cor', np.mean(total_cor), data_iter_step)
             tensorboard_writer.add_scalar('seg_cor', np.mean(total_seg_cor), data_iter_step)
+=======
+            tensorboard_writer.add_scalar('lr', lr, data_iter_step)
+            tensorboard_writer.add_scalar('cor', np.mean(total_cor), data_iter_step)
+>>>>>>> aa12429e88388664d2801a2cb61344a936926ac4
             start_time = time.time()
 
     if logger is not None:
         lr = optimizer.param_groups[0]["lr"]
         logger.log('loss', np.mean(total_loss), step=epoch)
         logger.log('cor_loss', np.mean(total_cor_loss), step=epoch)
+<<<<<<< HEAD
         logger.log('seg_cor_loss', np.mean(total_seg_cor_loss), step=epoch)
         logger.log('lr', lr, step=epoch)
         logger.log('cor', np.mean(total_cor), step=epoch)
         logger.log('seg_cor', np.mean(total_seg_cor), step=epoch)
+=======
+        logger.log('lr', lr, step=epoch)
+        logger.log('cor', np.mean(total_cor), step=epoch)
+>>>>>>> aa12429e88388664d2801a2cb61344a936926ac4
         if start_time is not None:
             logger.log('time (min)', (time.time() - start_time)/60.0, step=epoch)
     if config.local_rank == 0:        
