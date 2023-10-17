@@ -22,6 +22,7 @@ class Config_MBM_EEG(Config_MAE_fMRI):
         self.hop_size = 10
         self.smooth = False
         self.add_cor_loss = False
+        self.add_seg_cor_loss = False
         
         # Model Parameters
         self.mask_ratio = 0.1

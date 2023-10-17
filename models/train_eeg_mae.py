@@ -67,6 +67,7 @@ def get_args_parser():
     parser.add_argument('--hop_size', type=int, default=10)
     parser.add_argument('--smooth', action='store_true')
     parser.add_argument('--add_cor_loss', action='store_true')
+    parser.add_argument('--add_seg_cor_loss', action='store_true')
 
     # Model Parameters
     parser.add_argument('--mask_ratio', type=float)
@@ -175,13 +176,7 @@ def main(config):
 
     model_path = os.path.join(output_path, 'checkpoints', 'checkpoint.pth')
     start_epoch = 0
-    if config.resume != '':
-        checkpoint = torch.load(config.resume, map_location='cpu')
-        if 'model' in checkpoint:
-            checkpoint = checkpoint['model']
-        model_without_ddp.load_state_dict(checkpoint)
-        print("Resume checkpoint %s" % config.resume)
-    elif os.path.exists(model_path):
+    if os.path.exists(model_path):
         checkpoint = torch.load(model_path, map_location='cpu')
         model_without_ddp.load_state_dict(checkpoint['model'])
         print("Resume checkpoint %s" % model_path)
@@ -190,9 +185,16 @@ def main(config):
             start_epoch = checkpoint['epoch'] + 1
             if 'scaler' in checkpoint:
                 loss_scaler.load_state_dict(checkpoint['scaler'])
-            print("With optim & sched!")
+            print("With optim & sched!") 
+    elif config.resume != '':
+        checkpoint = torch.load(config.resume, map_location='cpu')
+        if 'model' in checkpoint:
+            checkpoint = checkpoint['model']
+        model_without_ddp.load_state_dict(checkpoint)
+        print("Resume checkpoint %s" % config.resume)
 
     print(f"Add cor_loss: {config.add_cor_loss}")
+    print(f"Add seg_cor_loss: {config.add_seg_cor_loss}")
     for ep in range(start_epoch, config.num_epoch):
         print(f"Start Epoch: {ep}")
         if torch.cuda.device_count() > 1: 
@@ -200,7 +202,7 @@ def main(config):
         cor = train_one_epoch(
             model, dataloader_eeg, optimizer, device, ep, loss_scaler, logger, 
             tensorboard_writer, config, start_time, model_without_ddp,
-            img_feature_extractor, preprocess, config.add_cor_loss)
+            img_feature_extractor, preprocess, config.add_cor_loss, config.add_seg_cor_loss)
         cor_list.append(cor)
         if config.local_rank == 0:
             # save models
