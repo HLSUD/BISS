@@ -169,10 +169,11 @@ class DiffWave(nn.Module):
         ResidualBlock(params.n_mels, params.residual_channels, 2**(i % params.dilation_cycle_length), uncond=params.unconditional)
         for i in range(params.residual_layers)
     ])
-    self.downsample_layers = nn.ModuleList([
-        SpectrogramDownsampler(params.num_channel//pow(2,i))
-        for i in range(int(params.num_channel//params.n_mels))
-    ])
+    if self.params.n_mels != self.params.num_channel:
+        self.downsample_layers = nn.ModuleList([
+            SpectrogramDownsampler(params.num_channel//pow(2,i))
+            for i in range(int(params.num_channel//params.n_mels))
+        ])
     self.skip_projection = Conv1d(params.residual_channels, params.residual_channels, 1)
     self.output_projection = Conv1d(params.residual_channels, 1, 1)
     nn.init.zeros_(self.output_projection.weight)

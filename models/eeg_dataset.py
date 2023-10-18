@@ -374,8 +374,7 @@ class eeg_pretrain_dataset(Dataset):
         data = eeg_data[:,start_loc:(start_loc+self.win_size)]
         # print(data.shape)
         ret = eeg_interp_repeat(data, self.data_chan, self.data_len)
-        for i in range(data.shape[-2]):
-            ret[i] = smooth_signal(ret[i])
+        
         # torch.tensor()
         if self.smooth:
             for idx in range(len(ret)):
@@ -397,7 +396,7 @@ class ConditionalDataset(Dataset):
     self.sr = sr
     self.path = path
     self.data=pd.read_csv(tsv_filename,sep='\t')
-    self.filenames = self.data['path']
+    self.filenames = np.array(self.data['path'])
     
 
   def __len__(self):

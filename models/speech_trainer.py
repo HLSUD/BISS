@@ -24,7 +24,6 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 from torch.multiprocessing import spawn
-
 from tqdm import tqdm
 
 # from diffwave.dataset import from_path, from_gtzan
@@ -73,7 +72,7 @@ class WhisperDiffWaveLearner:
     if pooling is None:
         if params.audio_model == 'base':
             in_channel = 512
-        self.pooling = whis2diffpooling(in_channel, self.params.num_channel)
+        self.pooling = whis2diffpooling(in_channel, self.params.num_channel).to(params.device)
     else:
         self.pooling = pooling
 
@@ -182,8 +181,7 @@ class WhisperDiffWaveLearner:
     audio = audio[:,start:end]
     audio = F.pad(audio, (0,(end-start) - audio.shape[-1]), "constant", 0)
 
-    # print('projecting...')
-    audio_features = self.pooling(audio_features)
+    # print('projecting...')    
 
     # print('audio genrating...')
     N, T = audio.shape
@@ -191,12 +189,14 @@ class WhisperDiffWaveLearner:
     self.noise_level = self.noise_level.to(device)
 
     with self.autocast:
+      audio_features = self.pooling(audio_features)
       t = torch.randint(0, len(self.params.noise_schedule), [N], device=audio.device)
       noise_scale = self.noise_level[t].unsqueeze(1)
       noise_scale_sqrt = noise_scale**0.5
       noise = torch.randn_like(audio)
       noisy_audio = noise_scale_sqrt * audio + (1.0 - noise_scale)**0.5 * noise
-      
+    #   ls = [name for name,para in self.diff_model.named_parameters() if para.grad==None]
+    #   print(ls)
       predicted = self.diff_model(noisy_audio, t, audio_features)
       loss = self.loss_fn(noise, predicted.squeeze(1))
 
@@ -247,6 +247,10 @@ def train(args, params):
 
 
 def train_distributed(replica_id, replica_count, port, args, params):
+  whisper_device = torch.device('cuda',replica_id)
+  whisper_model = load_model(params.audio_model).to(whisper_device)
+  for p in whisper_model.parameters():
+    p.requires_grad = params.audio_trainable
   os.environ['MASTER_ADDR'] = 'localhost'
   os.environ['MASTER_PORT'] = str(port)
   torch.distributed.init_process_group('nccl', rank=replica_id, world_size=replica_count)
@@ -257,15 +261,13 @@ def train_distributed(replica_id, replica_count, port, args, params):
   device = torch.device('cuda', replica_id)
   torch.cuda.set_device(device)
 
-  whisper_model = load_model(params.audio_model).to(device)
-  for p in whisper_model.parameters():
-    p.requires_grad = params.audio_trainable
   if params.audio_model == 'base':
     in_channel = 512
   pooling = whis2diffpooling(in_channel, params.num_channel).to(device)
   diff_model = DiffWave(params).to(device)
   diff_model = DistributedDataParallel(diff_model, device_ids=[replica_id])
-  whisper_model = DistributedDataParallel(whisper_model, device_ids=[replica_id])
+  
+#   whisper_model = DistributedDataParallel(whisper_model, device_ids=[replica_id])
   pooling = DistributedDataParallel(pooling, device_ids=[replica_id])
   _train_impl(replica_id, diff_model, whisper_model, dataset, args, params, pooling)
 
@@ -278,11 +280,13 @@ def _get_free_port():
 
 
 def main(args):
+  torch.multiprocessing.set_sharing_strategy('file_system')
   params = Config_Wave()
   params.batch_size = args.batch_size
   params.learning_rate = args.learning_rate
   
   replica_count = torch.cuda.device_count()
+  replica_count = args.num_gpus
   if replica_count > 1:
     if params.batch_size % replica_count != 0:
       raise ValueError(f'Batch size {params.batch_size} is not evenly divisble by # GPUs {replica_count}.')
@@ -307,4 +311,6 @@ if __name__ == '__main__':
       help='learning rate')
   parser.add_argument('--fp16', action='store_true', default=False,
       help='use 16-bit floating point operations for training')
+  parser.add_argument('--num_gpus', default=8, type=int,
+      help='Total number of gpus')
   main(parser.parse_args())
