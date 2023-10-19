@@ -12,7 +12,7 @@ RESULT_DIR = os.path.join(REPO_DIR, "results")
 SCORE_DIR = os.path.join(REPO_DIR, "scores")
 
 # GPT encoding model parameters
-
+GPT_name = 'THUMT/mGPT'
 TRIM = 5
 STIM_DELAYS = [1, 2, 3, 4]
 RESP_DELAYS = [-4, -3, -2, -1]
@@ -39,6 +39,7 @@ WINDOW = 20
 
 # devices
 
-GPT_DEVICE = "cuda"
-EM_DEVICE = "cuda"
-SM_DEVICE = "cuda"
+GPT_DEVICE = "cpu"
+NEURO_DEVICE = "cpu"
+EM_DEVICE = "cpu"
+SM_DEVICE = "cpu"

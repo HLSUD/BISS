@@ -3,16 +3,16 @@ import torch
 torch.set_default_tensor_type(torch.FloatTensor)
 
 import config
-from utils_ridge.interpdata import lanczosfun
+# from utils_ridge.interpdata import lanczosfun
 
-def get_lanczos_mat(oldtime, newtime, window = 3, cutoff_mult = 1.0, rectify = False):
-    """get matrix for downsampling from TR times to word times
-    """
-    cutoff = 1 / np.mean(np.diff(newtime)) * cutoff_mult
-    sincmat = np.zeros((len(newtime), len(oldtime)))
-    for ndi in range(len(newtime)):
-        sincmat[ndi,:] = lanczosfun(cutoff, newtime[ndi] - oldtime, window)
-    return sincmat
+# def get_lanczos_mat(oldtime, newtime, window = 3, cutoff_mult = 1.0, rectify = False):
+#     """get matrix for downsampling from TR times to word times
+#     """
+#     cutoff = 1 / np.mean(np.diff(newtime)) * cutoff_mult
+#     sincmat = np.zeros((len(newtime), len(oldtime)))
+#     for ndi in range(len(newtime)):
+#         sincmat[ndi,:] = lanczosfun(cutoff, newtime[ndi] - oldtime, window)
+#     return sincmat
     
 def affected_trs(start_index, end_index, lanczos_mat, delay = True):
     """identify TRs influenced by words in the range [start_index, end_index]
@@ -87,6 +87,8 @@ class LMFeatures():
         """outputs matrix of features corresponding to the stimulus words
         """
         context_array = self.model.get_story_array(words, self.context_words)
+        # print(f'con shape {context_array.shape}')
         embs = self.model.get_hidden(context_array, layer = self.layer)
-        return np.vstack([embs[0, :self.context_words], 
-            embs[:context_array.shape[0] - self.context_words, self.context_words]])
+        # print(f'em shape {embs.shape}')
+        return np.vstack([embs[0, :self.context_words], # cw * emb_d
+            embs[:context_array.shape[0] - self.context_words, self.context_words]]) # n-cw embd

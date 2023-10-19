@@ -9,6 +9,7 @@ data/data
 data/audio
 data/eeg_data
 data/mozila
+data/text_decoding
 data/little_prince_word_info
 results
 events*

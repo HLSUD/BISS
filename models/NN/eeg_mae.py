@@ -1,4 +1,8 @@
 import sys
+import os
+ 
+# setting path
+sys.path.append(os.path.join(os.path.dirname(__file__),'../'))
 import models.utils as ut
 import torch
 import torch.nn as nn
@@ -420,10 +424,11 @@ class eeg_encoder(nn.Module):
         else:
             state_dict = {k: v for k, v in state_dict.items() if ('mask_token' not in k)}
         ut.interpolate_pos_embed(self, state_dict)
+        # print('decoder_pos_embed' in state_dict.keys())
             
         m, u = self.load_state_dict(state_dict, strict=False)
-        print('missing keys:', u)
-        print('unexpected keys:', m)
+        # print('missing keys:', m)
+        # print('unexpected keys:', u)
         return 
 
 class classify_network(nn.Module):
