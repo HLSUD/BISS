@@ -406,6 +406,7 @@ class ConditionalDataset(Dataset):
     audio_filename = self.path + 'clips/' + self.filenames[idx]
     # spec_filename = f'{audio_filename}.spec.npy'
     signal, sr = torchaudio.load(audio_filename)
+    time = signal.shape[-1]//sr
     if sr != self.sr:
         signal = torchaudio.functional.resample(signal, orig_freq=sr, new_freq=self.sr)
     # spectrogram = np.load(spec_filename)
@@ -414,7 +415,8 @@ class ConditionalDataset(Dataset):
     mel = log_mel_spectrogram(audio)
     return {
         'audio': audio,
-        'spectrogram': mel
+        'spectrogram': mel,
+        'time': time
     }
 
 class Whisper_Collator:

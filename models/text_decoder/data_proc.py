@@ -15,7 +15,7 @@ def get_stim(word_info_df, features, word_len):
     win_mat = np.empty((N-word_len,word_len,emb_len))
     for i in range(N-word_len):
         win_mat[i] = ds_mat[i:i+word_len,:]
-    return win_mat
+    return win_mat, r_mean, r_std
 
 
 def get_resp_word(data_path, word_info_df, word_len,out_chan=128, timepts=512, stack = True):

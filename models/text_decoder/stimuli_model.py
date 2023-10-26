@@ -21,6 +21,16 @@ def affected_trs(start_index, end_index, lanczos_mat, delay = True):
     start_tr, end_tr = start_tr + min(config.STIM_DELAYS), end_tr + max(config.STIM_DELAYS)
     start_tr, end_tr = max(start_tr, 0), min(end_tr, lanczos_mat.shape[0] - 1)
     return np.arange(start_tr, end_tr + 1)
+
+class StimulusModel():
+    """class for constructing stimulus features
+    """
+    def __init__(self, device = 'cpu'):
+        self.device = device
+        # self.lanczos_mat = torch.from_numpy(lanczos_mat).float().to(self.device)
+        # self.tr_mean = torch.from_numpy(tr_stats[0]).float().to(device)
+        # self.tr_std_inv = torch.from_numpy(np.diag(1 / tr_stats[1])).float().to(device)
+        # self.blank = torch.from_numpy(word_mean).float().to(self.device)
     
 class StimulusModel():
     """class for constructing stimulus features
@@ -77,11 +87,19 @@ class LMFeatures():
     def extend(self, extensions, verbose = False):
         """outputs array of vectors corresponding to the last words of each extension
         """
-        contexts = [extension[-(self.context_words+1):] for extension in extensions]
+        # contexts = [extension[-(self.context_words+1):] for extension in extensions]
+        contexts = [extension[-(self.context_words):] for extension in extensions]
+        # print(f'context len {len(contexts)}')
+        
         if verbose: print(contexts)
         context_array = self.model.get_context_array(contexts)
+        
+        if context_array.ndim == 1:
+            context_array = torch.unsqueeze(context_array,1)
+            print(context_array.shape)
         embs = self.model.get_hidden(context_array, layer = self.layer)
-        return embs[:, len(contexts[0]) - 1]
+        # print(f'embs shape {embs.shape}')
+        return embs
 
     def make_stim(self, words):
         """outputs matrix of features corresponding to the stimulus words

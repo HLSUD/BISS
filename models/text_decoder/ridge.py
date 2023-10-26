@@ -143,6 +143,7 @@ def ridge_corr(Rstim, Pstim, Rresp, Presp, alphas, normalpha=False, dtype=np.sin
     Prespvar = Presp.var(0)
     Rcorrs = [] ## Holds training correlations for each alpha
     for na, a in zip(nalphas, alphas):
+        print(f'Alpha {na}...')
         #D = np.diag(S/(S**2+a**2)) ## Reweight singular vectors by the ridge parameter 
         D = S/(S**2+na**2) ## Reweight singular vectors by the (normalized?) ridge parameter
         
@@ -266,6 +267,7 @@ def bootstrap_ridge(Rstim, Rresp, alphas, nboots, chunklen, nchunks, dtype=np.si
     Rcmats = []
     for bi in counter(range(nboots), countevery=1, total=nboots):
         logger.info("Selecting held-out test set..")
+        print(f'Boot {bi}...')
         allinds = range(nresp)
         indchunks = list(zip(*[iter(allinds)]*chunklen))
         random.shuffle(indchunks)

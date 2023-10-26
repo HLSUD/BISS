@@ -167,12 +167,14 @@ class WhisperDiffWaveLearner:
 
     audio = features['audio']
     spectrogram = features['spectrogram']
+    time = features['time']
+    time = time.min() # min may not be a good choice
     ### preprocess
     # print('getting audio features...')
     audio_features = self.whis_model.embed_audio(spectrogram)
 
     ### random start position of audio feature
-    start = random.randint(0, audio_features.shape[-1] - self.params.whisper_len)
+    start = random.randint(0,(time -self.params.time) * self.params.token_num_per_sec)
     end = start+self.params.whisper_len
     audio_features = audio_features[:,start:end]
     samples_per_frame = self.params.sample_rate // self.params.token_num_per_sec

@@ -1,3 +1,4 @@
+### save std and mean of stimuli
 import os
 import sys
  
@@ -33,28 +34,31 @@ if __name__ == "__main__":
     # load gpt
     # with open(os.path.join(config.DATA_LM_DIR, args.gpt, "vocab.json"), "r") as f:
     #     gpt_vocab = json.load(f)
-    gpt = GPT(config.GPT_name, None, device = config.GPT_DEVICE)
-    path = '/Users/honghaoliu/Documents/GitHub/BISR/code/results/checkpoints/stage1_b256_lr1e-4_w20e200_hop100_smooth_cor_m75.pth'
-    neural_encoder = Neuro_Encoder(path, device = config.NEURO_DEVICE)
-    features = LMFeatures(model = gpt, layer = config.GPT_LAYER, context_words = config.GPT_WORDS)
+    # gpt = GPT(config.GPT_name, None, device = config.GPT_DEVICE)
+    # path = '/Users/honghaoliu/Documents/GitHub/BISR/code/results/checkpoints/stage1_b256_lr1e-4_w20e200_hop100_smooth_cor_m75.pth'
+    # neural_encoder = Neuro_Encoder(path, device = config.NEURO_DEVICE)
+    # features = LMFeatures(model = gpt, layer = config.GPT_LAYER, context_words = config.GPT_WORDS)
     
     # estimate encoding model
     word_info_path = 'data/text_decoding/word_s1.csv'
     neural_path = 'data/eeg_data/subj'+str(args.subject)+'_single_f.npy'
     word_info_df = pd.read_csv(word_info_path)
     print('Geting stim...')
-    rstim = get_stim(word_info_df, features, config.GPT_WORDS)
-    print('Geting resp...')
-    rresp = get_resp_word(neural_path, word_info_df, config.GPT_WORDS)
-    print('Passing resp to encoder...')
-    rresp = neural_encoder.make_resp(rresp)
+    # rstim = get_stim(word_info_df, features, config.GPT_WORDS)
+    # print('Geting resp...')
+    # rresp = get_resp_word(neural_path, word_info_df, config.GPT_WORDS)
+    # print('Passing resp to encoder...')
+    # rresp = neural_encoder.make_resp(rresp)
     
-    N, chan, remb_len = rresp.shape
-    N, word_len, semb_len =  rstim.shape
-    rresp = np.reshape(rresp,(N,chan*remb_len))
-    rstim = np.reshape(rstim,(N,word_len*semb_len))
+    # N, chan, remb_len = rresp.shape
+    # N, word_len, semb_len =  rstim.shape
+    # rresp = np.reshape(rresp,(N,chan*remb_len))
+    # rstim = np.reshape(rstim,(N,word_len*semb_len))
     
     # rresp = neural_encoder(rresp)
+    rresp = np.load('/Users/honghaoliu/Documents/GitHub/BISR/code/results/regression_arr/resp.npy')
+    rstim = np.load('/Users/honghaoliu/Documents/GitHub/BISR/code/results/regression_arr/rstim.npy')
+
     print(rstim.shape,rresp.shape)
 
     nchunks = int(np.ceil(rresp.shape[0] / 5 / config.CHUNKLEN))
@@ -88,5 +92,5 @@ if __name__ == "__main__":
     # save_location = os.path.join(config.MODEL_DIR, args.subject)
     # os.makedirs(save_location, exist_ok = True)
     # np.savez(os.path.join(save_location, "encoding_model_%s" % args.gpt), 
-    #     weights = weights, noise_model = noise_model, alphas = alphas, voxels = vox, stories = stories,
-    #     )
+        # weights = weights, noise_model = noise_model, alphas = alphas, voxels = vox, stories = stories,
+        # tr_stats = np.array(tr_stats), word_stats = np.array(word_stats))

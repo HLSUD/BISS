@@ -8,7 +8,7 @@ DATA_LM_DIR = os.path.join(REPO_DIR, "data_lm")
 DATA_TRAIN_DIR = os.path.join(REPO_DIR, "data_train")
 DATA_TEST_DIR = os.path.join(REPO_DIR, "data_test")
 MODEL_DIR = os.path.join(REPO_DIR, "models")
-RESULT_DIR = os.path.join(REPO_DIR, "results")
+RESULT_DIR = os.path.join(REPO_DIR, "../results")
 SCORE_DIR = os.path.join(REPO_DIR, "scores")
 
 # GPT encoding model parameters

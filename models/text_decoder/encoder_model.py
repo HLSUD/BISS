@@ -1,3 +1,4 @@
+from models.NN.nle import NeuroEncoder
 import numpy as np
 import torch
 torch.set_default_tensor_type(torch.FloatTensor)
@@ -20,8 +21,13 @@ class EncodingModel():
     def prs(self, stim, trs):
         """compute P(R | S) on affected TRs for each hypothesis
         """
+        stim = torch.from_numpy(stim)
+        while stim.ndim == 2:
+            stim = torch.unsqueeze(stim, 1)
         with torch.no_grad(): 
             stim = stim.float().to(self.device)
             diff = torch.matmul(stim, self.weights) - self.resp[trs] # encoding model residuals
+            # print(f' weight shape and diff shape {diff.shape, self.weights.shape}')
+            # print(self.precision.shape)
             multi = torch.matmul(torch.matmul(diff, self.precision), diff.permute(0, 2, 1))
             return -0.5 * multi.diagonal(dim1 = -2, dim2 = -1).sum(dim = 1).detach().cpu().numpy()

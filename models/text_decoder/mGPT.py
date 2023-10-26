@@ -29,7 +29,7 @@ class GPT():
         nctx = context_words + 1
         story_ids = np.array([self.tokenizer.encode(w)[1] for w in words])
         story_array = np.zeros([len(story_ids), nctx])
-        print(story_ids[:context_words].shape)
+        # print(story_ids[:context_words].shape)
         for i in range(len(story_array)):
             segment = np.concatenate((self.start_id,story_ids[i:i+context_words]))
             story_array[i, :len(segment)] = segment
@@ -38,7 +38,7 @@ class GPT():
     def get_context_array(self, contexts):
         """get word ids for each context
         """
-        context_array = np.array([self.tokenizer.encode(words) for words in contexts])
+        context_array = np.array([self.tokenizer.encode(words)[:-1] for words in contexts]) ### remove end token id 1
         return torch.tensor(context_array).long()
 
     def get_hidden(self, ids, layer):
@@ -56,5 +56,6 @@ class GPT():
         mask = torch.ones(ids.shape).int()
         with torch.no_grad():
             outputs = self.model(input_ids = ids.to(self.device), attention_mask = mask.to(self.device))
+        
         probs = softmax(outputs.logits, dim = 2).detach().cpu().numpy()
         return probs
