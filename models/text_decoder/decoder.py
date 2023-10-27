@@ -39,8 +39,6 @@ class Decoder(object):
         """add extensions for each hypothesis to global extension pool
         """
         scored_extensions = sorted(zip(extensions, likelihoods), key = lambda x : -x[1])
-        # a = list(scored_extensions)
-        # print(f'scored {scored_extensions, len(a)}')
         self.scored_extensions.extend(scored_extensions[:num_extensions])
 
     def extend(self, verbose = False):

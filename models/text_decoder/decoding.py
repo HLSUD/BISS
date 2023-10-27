@@ -99,7 +99,7 @@ if __name__ == "__main__":
     hyp = decoder.beam[0]
     hyp.words = ['当','我','还','只有','六']
     hyp.logprobs = [0,0,0,0,0]
-    # print(init_stim)
+    
     hyp.embs = [hyp.embs+[init_stim[i*semb_len:(i+1)*semb_len]] for i in range(5)]
     logging.info(hyp)
     
@@ -119,46 +119,31 @@ if __name__ == "__main__":
         logging.info('-----------------------------------------------------')
         logging.info(f'sample id {sample_index} len beam {len(decoder.beam)}, width {decoder.beam_width}')
         beam_nucs = lm.beam_propose(decoder.beam, ncontext)
-        # print(beam_nucs)
-        # if len(decoder.beam) == 1:
-        #     beam_nucs = 
+        
         logging.info(f'decoding beam {len(beam_nucs)}, beam len {len(decoder.beam)}')
         for i in range(5):
             if i < len(decoder.beam):
                 logging.info(decoder.beam[i].words)
         
-        # print(len(decoder.get_hypotheses()))
+       
         
         for c, (hyp, nextensions) in enumerate(decoder.get_hypotheses()):
             nuc, logprobs = beam_nucs[c]
             
             if len(nuc) < 1: continue
             extend_words = [hyp.words + [x] for x in nuc]
-            # print(f'words {extend_words}')
-            extend_embs = list(features.extend(extend_words))
             
-            # print(extend_embs[0].shape, len(extend_embs))
+            extend_embs = list(features.extend(extend_words))
             extend_embs = np.nan_to_num(np.dot((extend_embs - r_mean), np.linalg.inv(np.diag(r_std))))
             N,num_word,_ = extend_embs.shape
-            # print(f'emb shape{extend_embs.shape}')
             stim = total_stim_emb
-            # print(f'cut shape {stim.shape, stim[:,num_word*semb_len:].shape}')
             stim = np.tile(stim[:,num_word*semb_len:], (extend_embs.shape[0], 1))
-            # print(stim.shape, extend_embs.shape)
             stim = np.concatenate((stim, extend_embs.reshape(N,-1)),axis=1)
-            # print(stim.shape)
-            # print(f'stim shape {stim.shape}')
             # stim = sm.make_variants(sample_index, hyp.embs, extend_embs, trs)
             likelihoods = em.prs(stim, sample_index+1)
-            # print(f'like {likelihoods.shape}')
-            # print(len(list(zip(nuc, logprobs, extend_embs))))
             local_extensions = [Hypothesis(parent = hyp, extension = x) for x in zip(nuc, logprobs, extend_embs)]
             decoder.add_extensions(local_extensions, likelihoods, nextensions)
-            # break
         decoder.extend(verbose = False)
-        # if sample_index == 2:
-        #     break
-        # break
         
     if args.experiment in ["perceived_movie", "perceived_multispeaker"]: decoder.word_times += 10
     decoder.save(os.path.join(save_location))

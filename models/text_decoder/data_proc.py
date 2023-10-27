@@ -29,7 +29,7 @@ def get_resp_word(data_path, word_info_df, word_len,out_chan=128, timepts=512, s
     
     num_word = len(word_info_df)
     resp_arr = np.empty((num_word-word_len,out_chan,timepts))
-    print(num_word - word_len)
+    
     for i in range(num_word - word_len):
         seg_resp = resp[:,onsets[i]:onsets[i+word_len]]
         seg_resp = eeg_interp_repeat(seg_resp,out_chan,timepts)

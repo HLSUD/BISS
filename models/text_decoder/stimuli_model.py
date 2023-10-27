@@ -89,7 +89,6 @@ class LMFeatures():
         """
         # contexts = [extension[-(self.context_words+1):] for extension in extensions]
         contexts = [extension[-(self.context_words):] for extension in extensions]
-        # print(f'context len {len(contexts)}')
         
         if verbose: print(contexts)
         context_array = self.model.get_context_array(contexts)
@@ -98,15 +97,12 @@ class LMFeatures():
             context_array = torch.unsqueeze(context_array,1)
             print(context_array.shape)
         embs = self.model.get_hidden(context_array, layer = self.layer)
-        # print(f'embs shape {embs.shape}')
         return embs
 
     def make_stim(self, words):
         """outputs matrix of features corresponding to the stimulus words
         """
         context_array = self.model.get_story_array(words, self.context_words)
-        # print(f'con shape {context_array.shape}')
         embs = self.model.get_hidden(context_array, layer = self.layer)
-        # print(f'em shape {embs.shape}')
         return np.vstack([embs[0, :self.context_words], # cw * emb_d
             embs[:context_array.shape[0] - self.context_words, self.context_words]]) # n-cw embd

@@ -29,7 +29,6 @@ class GPT():
         nctx = context_words + 1
         story_ids = np.array([self.tokenizer.encode(w)[1] for w in words])
         story_array = np.zeros([len(story_ids), nctx])
-        # print(story_ids[:context_words].shape)
         for i in range(len(story_array)):
             segment = np.concatenate((self.start_id,story_ids[i:i+context_words]))
             story_array[i, :len(segment)] = segment

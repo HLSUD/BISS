@@ -6,7 +6,7 @@ import torch
 INIT = ['我', '我们', '她', '他', '他们', '它']
 # INIT = ['当我还只有六']
 STOPWORDS = {'is', 'does', 's', 'having', 'doing', 'these', 'shan', 'yourself', 'other', 'are', 'hasn', 'at', 'for', 'while', 'down', "hadn't", 'until', 'above', 'during', 'each', 'now', 'have', "won't", 'once', 'why', 'here', 'ourselves', 'to', 'over', 'into', 'who', 'that', 'myself', 'he', 'themselves', 'were', 'against', 'about', 'some', 'has', 'but', 'ma', 'their', 'this', 'there', 'with', "that'll", "shan't", "wouldn't", 'a', 'those', "you'll", 'll', 'few', 'couldn', 'an', 'd', "weren't", 'doesn', 'own', 'won', 'didn', 'what', 'when', 'in', 'below', 'where', "it's", 'most', 'just', "you're", 'yourselves', 'too', "don't", "she's", "didn't", "hasn't", 'isn', "mustn't", 'of', 'did', 'how', 'himself', 'aren', 'if', 'very', 'or', 'weren', 'it', 'be', 'itself', "doesn't", 'my', 'o', 'no', "isn't", 'before', 'after', 'off', 'was', 'can', 'the', 'been', 'her', 'him', "wasn't", 've', 'through', "needn't", 'because', 'nor', 'will', 'm', 't', 'out', 'on', 'she', 'all', 'then', 'than', "mightn't", 'hers', 'herself', 'only', 'should', 're', 'ain', 'wasn', "aren't", "couldn't", 'they', 'hadn', 'had', 'more', 'and', 'under', "shouldn't", 'any', 'y', 'don', 'from', 'so', 'whom', 'as', 'mustn', 'between', 'up', 'do', 'both', 'such', 'our', 'its', 'which', 'not', "haven't", 'needn', 'by', "should've", 'again', 'shouldn', 'his', 'me', 'further', 'yours', 'am', 'your', 'haven', 'wouldn', 'being', 'ours', 'you', 'i', 'theirs', 'mightn', 'same', 'we', "you've", 'them', "you'd"}
-PUNC = {',','。', '','】【','、','“'}
+PUNC = {',','。', '','】【','、','“','！','@','#','¥','%','……','&','*','（','）','——','+','-','=','「','」','【','】','、','｜','；','‘','：','《','》','？','，','。','/'}
 
 def get_nucleus(probs, nuc_mass, nuc_ratio):
     """identify words that constitute a given fraction of the probability mass
@@ -51,28 +51,25 @@ class LanguageModel():
         context_arr = self.model.get_context_array(contexts)
         if context_arr.ndim == 1:
             context_arr = torch.unsqueeze(context_arr,1)
-        # print(f'context arr shape {context_arr.shape}')
         probs = self.model.get_probs(context_arr)
-        # print(f'prob arr shape {probs.shape}')
         return probs[:, len(contexts[0]) - 1] 
     
     def beam_propose(self, beam, context_words):
         """get possible extension words for each hypothesis in the decoder beam
         """
-        if len(beam) == 0: 
+        if len(beam) == 0:
             nuc_words = [w for w in self.init_words]
             nuc_logprobs = np.log(np.ones(len(nuc_words)) / len(nuc_words))
             return [(nuc_words, nuc_logprobs)]
         else:
             contexts = [hyp.words[-context_words:] for hyp in beam]
-            # print(f'lm beam propose {contexts}')
             beam_probs = self.ps(contexts)
             beam_nucs = []
             for context, probs in zip(contexts, beam_probs):
                 nuc_ids = get_nucleus(probs, nuc_mass = self.nuc_mass, nuc_ratio = self.nuc_ratio)
                 nuc_words = [self.model.tokenizer.decode(i) for i in nuc_ids]     
                 nuc_words = context_filter(nuc_words, context)
-                # print(self.model.tokenizer.encode([nuc_words[0]])[0])
+
                 nuc_logprobs = np.log([probs[self.model.tokenizer.encode([w])[0]] for w in nuc_words])
                 beam_nucs.append((nuc_words, nuc_logprobs))
                 # break
