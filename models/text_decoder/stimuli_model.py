@@ -103,6 +103,10 @@ class LMFeatures():
         """outputs matrix of features corresponding to the stimulus words
         """
         context_array = self.model.get_story_array(words, self.context_words)
-        embs = self.model.get_hidden(context_array, layer = self.layer)
+        embs = np.array([])
+        for ctx in context_array:
+            emb = self.model.get_hidden(ctx, layer = self.layer)
+            embs = np.vstack([embs,emb]) if embs.size else emb
+        
         return np.vstack([embs[0, :self.context_words], # cw * emb_d
             embs[:context_array.shape[0] - self.context_words, self.context_words]]) # n-cw embd

@@ -20,10 +20,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--subject", type = str, required = True)
     parser.add_argument("--gpt", type = str, default = "perceived")
+    parser.add_argument("--session", type = str, required = True) # single female _single_f
     # parser.add_argument("--sessions", nargs = "+", type = int, 
     #     default = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 18, 20])
     args = parser.parse_args()
-    save_location = os.path.join(config.MODEL_DIR, args.subject)
+    save_location = os.path.join(config.RESULT_DIR, args.subject)
     os.makedirs(save_location, exist_ok = True)
 
     # without noise estimation
@@ -38,30 +39,33 @@ if __name__ == "__main__":
     # with open(os.path.join(config.DATA_LM_DIR, args.gpt, "vocab.json"), "r") as f:
     #     gpt_vocab = json.load(f)
     gpt = GPT(config.GPT_name, None, device = config.GPT_DEVICE)
-    path = '/Users/honghaoliu/Documents/GitHub/BISR/code/results/checkpoints/stage1_b256_lr1e-4_w20e200_hop100_smooth_cor_m75.pth'
+    path = config.NEURO_ENCODER_PATH
     neural_encoder = Neuro_Encoder(path, device = config.NEURO_DEVICE)
     features = LMFeatures(model = gpt, layer = config.GPT_LAYER, context_words = config.GPT_WORDS)
     
     # estimate encoding model
     word_info_path = 'data/text_decoding/word_s1.csv'
-    neural_path = 'data/eeg_data/subj'+str(args.subject)+'_single_f.npy'
+    neural_path = 'data/eeg_data/subj'+str(args.subject)+args.session +'.npy'
     word_info_df = pd.read_csv(word_info_path)
+    print(f'Subject id: {args.subject}, word info {word_info_path}')
     print('Geting stim...')
-    rstim = get_stim(word_info_df, features, config.GPT_WORDS)
-    print('Geting resp...')
-    rresp = get_resp_word(neural_path, word_info_df, config.GPT_WORDS)
-    print('Passing resp to encoder...')
-    rresp = neural_encoder.make_resp(rresp)
+    rstim, r_mean, r_std = get_stim(word_info_df, features, config.GPT_WORDS)
+    # np.save(save_location+'/r_mean.npy',r_mean)
+    # np.save(save_location+'/r_std.npy',r_std)
+    # print('Geting resp...')
+    # rresp = get_resp_word(neural_path, word_info_df, config.GPT_WORDS)
+    # print('Passing resp to encoder...')
+    # rresp = neural_encoder.make_resp(rresp)
     
-    N, chan, remb_len = rresp.shape
-    N, word_len, semb_len =  rstim.shape
-    rresp = np.reshape(rresp,(N,chan*remb_len))
-    rstim = np.reshape(rstim,(N,word_len*semb_len))
+    # N, chan, remb_len = rresp.shape
+    # N, word_len, semb_len =  rstim.shape
+    # rresp = np.reshape(rresp,(N,chan*remb_len))
+    # rstim = np.reshape(rstim,(N,word_len*semb_len))
     
     # rresp = neural_encoder(rresp)
-    np.save(rstim,save_location+'/rstim.npy')
-    np.save(rresp,save_location+'/rresp.npy')
-
+    # np.save(rstim,save_location+'/rstim.npy')
+    # np.save(rresp,save_location+'/rresp.npy')
+    print(save_location)
     rresp = np.load(save_location+'/rresp.npy')
     rstim = np.load(save_location+'/rstim.npy')
 
@@ -76,7 +80,7 @@ if __name__ == "__main__":
     del rstim, rresp
    
     np.savez(os.path.join(save_location, "encoding_model_%s" % args.gpt), 
-        weights = weights, alphas = alphas, voxels = vox, stories = stories,
+        weights = weights, alphas = alphas, voxels = vox, stories = stories,r_mean = r_mean, r_std = r_std
         )
     # estimate noise model
     # stim_dict = {story : get_stim([story], features, tr_stats = tr_stats) for story in stories}

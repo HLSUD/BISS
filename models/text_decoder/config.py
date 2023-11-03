@@ -10,6 +10,7 @@ DATA_TEST_DIR = os.path.join(REPO_DIR, "data_test")
 MODEL_DIR = os.path.join(REPO_DIR, "models")
 RESULT_DIR = os.path.join(REPO_DIR, "../results")
 SCORE_DIR = os.path.join(REPO_DIR, "scores")
+NEURO_ENCODER_PATH = os.path.join(REPO_DIR, "../checkpoints/stage1_b256_lr1e-4_w20e200_hop100_smooth_cor_m75.pth")
 
 # GPT encoding model parameters
 GPT_name = 'THUMT/mGPT'

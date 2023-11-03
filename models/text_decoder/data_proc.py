@@ -12,8 +12,23 @@ def get_stim(word_info_df, features, word_len):
     ds_mat = np.nan_to_num(np.dot((word_vecs - r_mean), np.linalg.inv(np.diag(r_std))))
     ## win resp
     N, emb_len = ds_mat.shape
-    win_mat = np.empty((N-word_len,word_len,emb_len))
-    for i in range(N-word_len):
+    win_mat = np.empty((N-word_len+1,word_len,emb_len))
+    for i in range(N-word_len+1):
+        win_mat[i] = ds_mat[i:i+word_len,:]
+    return win_mat, r_mean, r_std
+
+def get_stim_mean_std(word_info_df, features, word_len, r_mean, r_std):
+    # one story
+    word_seq = list(word_info_df['word'])
+    word_vecs = features.make_stim(word_seq)
+    # word_mean, word_std = word_vecs.mean(0), word_vecs.std(0) ## check
+    
+    r_std[r_std == 0] = 1
+    ds_mat = np.nan_to_num(np.dot((word_vecs - r_mean), np.linalg.inv(np.diag(r_std))))
+    ## win resp
+    N, emb_len = ds_mat.shape
+    win_mat = np.empty((N-word_len+1,word_len,emb_len))
+    for i in range(N-word_len+1):
         win_mat[i] = ds_mat[i:i+word_len,:]
     return win_mat, r_mean, r_std
 
@@ -28,12 +43,16 @@ def get_resp_word(data_path, word_info_df, word_len,out_chan=128, timepts=512, s
     offsets = np.array(word_info_df['offset'])
     
     num_word = len(word_info_df)
-    resp_arr = np.empty((num_word-word_len,out_chan,timepts))
+    resp_arr = np.empty((num_word-word_len+1,out_chan,timepts))
     
     for i in range(num_word - word_len):
         seg_resp = resp[:,onsets[i]:onsets[i+word_len]]
         seg_resp = eeg_interp_repeat(seg_resp,out_chan,timepts)
         resp_arr[i] = np.vstack([smooth_signal(seg_resp[ci]) for ci in range(out_chan)])
+    i = num_word - word_len
+    seg_resp = resp[:,onsets[i]:offsets[i+word_len-1]]
+    seg_resp = eeg_interp_repeat(seg_resp,out_chan,timepts)
+    resp_arr[i] = np.vstack([smooth_signal(seg_resp[ci]) for ci in range(out_chan)])
     return resp_arr
 
 def get_resp_time(data_path, subject, word_info_df, fs, hop_dur, word_len, stack = True):

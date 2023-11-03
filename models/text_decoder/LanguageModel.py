@@ -6,7 +6,7 @@ import torch
 INIT = ['我', '我们', '她', '他', '他们', '它']
 # INIT = ['当我还只有六']
 STOPWORDS = {'is', 'does', 's', 'having', 'doing', 'these', 'shan', 'yourself', 'other', 'are', 'hasn', 'at', 'for', 'while', 'down', "hadn't", 'until', 'above', 'during', 'each', 'now', 'have', "won't", 'once', 'why', 'here', 'ourselves', 'to', 'over', 'into', 'who', 'that', 'myself', 'he', 'themselves', 'were', 'against', 'about', 'some', 'has', 'but', 'ma', 'their', 'this', 'there', 'with', "that'll", "shan't", "wouldn't", 'a', 'those', "you'll", 'll', 'few', 'couldn', 'an', 'd', "weren't", 'doesn', 'own', 'won', 'didn', 'what', 'when', 'in', 'below', 'where', "it's", 'most', 'just', "you're", 'yourselves', 'too', "don't", "she's", "didn't", "hasn't", 'isn', "mustn't", 'of', 'did', 'how', 'himself', 'aren', 'if', 'very', 'or', 'weren', 'it', 'be', 'itself', "doesn't", 'my', 'o', 'no', "isn't", 'before', 'after', 'off', 'was', 'can', 'the', 'been', 'her', 'him', "wasn't", 've', 'through', "needn't", 'because', 'nor', 'will', 'm', 't', 'out', 'on', 'she', 'all', 'then', 'than', "mightn't", 'hers', 'herself', 'only', 'should', 're', 'ain', 'wasn', "aren't", "couldn't", 'they', 'hadn', 'had', 'more', 'and', 'under', "shouldn't", 'any', 'y', 'don', 'from', 'so', 'whom', 'as', 'mustn', 'between', 'up', 'do', 'both', 'such', 'our', 'its', 'which', 'not', "haven't", 'needn', 'by', "should've", 'again', 'shouldn', 'his', 'me', 'further', 'yours', 'am', 'your', 'haven', 'wouldn', 'being', 'ours', 'you', 'i', 'theirs', 'mightn', 'same', 'we', "you've", 'them', "you'd"}
-PUNC = {',','。', '','】【','、','“','！','@','#','¥','%','……','&','*','（','）','——','+','-','=','「','」','【','】','、','｜','；','‘','：','《','》','？','，','。','/'}
+PUNC = {',','。', '',':','】【',':“','、','“','！','!','@','#','¥','%','……','&','*','（','）','——','+','-','=','「','」','【','】','、','｜','；','‘','：','《','》','？','，','。','/'}
 
 def get_nucleus(probs, nuc_mass, nuc_ratio):
     """identify words that constitute a given fraction of the probability mass
@@ -33,7 +33,9 @@ def context_filter(proposals, context):
     """
     cut_words = []
     cut_words.extend([context[i+1] for i, word in enumerate(context[:-1]) if word == context[-1]]) # bigrams
-    cut_words.extend([x for x in proposals if x in PUNC]) # unigrams
+    cut_words.extend([word for word in context]) # unique # check
+    cut_words.extend([x for x in proposals if x in PUNC]) # punc
+    # print(f'cut words {cut_words}')
     return [x for x in proposals if x not in cut_words]
 
 class LanguageModel():

@@ -32,11 +32,11 @@ models = {}
 
 def predict(spectrogram=None, model_dir=None, params=None, device=torch.device('cuda'), fast_sampling=False):
   # Lazy load model.
-  
+  model_name = 'weights-100000.pt'
   if not model_dir in models:
-    if os.path.exists(f'{model_dir}/whis_2_diff.pt'):
+    if os.path.exists(f'{model_dir}/{model_name}'):
     
-      checkpoint = torch.load(f'{model_dir}/whis_2_diff.pt',map_location=torch.device('cpu'))
+      checkpoint = torch.load(f'{model_dir}/{model_name}',map_location=torch.device('cpu'))
       print('Load diff model from path...')
     else:
       print(model_dir)

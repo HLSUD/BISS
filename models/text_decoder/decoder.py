@@ -33,6 +33,7 @@ class Decoder(object):
         logprobs = [sum(hypothesis.logprobs) for hypothesis in self.beam]
         num_extensions = [int(np.ceil(self.extensions * rank / len(logprobs))) for 
                           rank in ss.rankdata(logprobs)]
+        # likelihoods = [hypothesis.likelihood for hypothesis in self.beam]
         return zip(self.beam, num_extensions)
     
     def add_extensions(self, extensions, likelihoods, num_extensions):
@@ -40,11 +41,19 @@ class Decoder(object):
         """
         scored_extensions = sorted(zip(extensions, likelihoods), key = lambda x : -x[1])
         self.scored_extensions.extend(scored_extensions[:num_extensions])
+    
+    def add_extensions_alter(self, extensions, num_extensions):
+        """add extensions for each hypothesis to global extension pool
+        """
+        # likelihoods = [ex.likelihood for ex in extensions]
+        scored_extensions = sorted(zip(extensions), key = lambda x : -x[0].likelihood)
+        self.scored_extensions.extend(scored_extensions[:num_extensions])
 
     def extend(self, verbose = False):
         """update beam based on global extension pool 
         """
         self.beam = [x[0] for x in sorted(self.scored_extensions, key = lambda x : -x[1])[:self.beam_width]]
+        # self.beam = [x[0] for x in sorted(self.scored_extensions, key = lambda x :-x[0].likelihood)[:self.beam_width]]
         self.scored_extensions = []
         if verbose: print(self.beam[0].words)
         
@@ -56,14 +65,16 @@ class Decoder(object):
 class Hypothesis(object):
     """a class for representing word sequence hypotheses
     """
-    def __init__(self, parent = None, extension = None):
+    def __init__(self, parent = None, extension = None, likelihood=None, previous_likelihood=None, decay_ratio = 0):
         if parent is None: 
             self.words, self.logprobs, self.embs = [], [], []
+            # self.likelihood = 0
         else:
             word, logprob, emb = extension
             self.words = parent.words + [word]
             self.logprobs = parent.logprobs + [logprob]
             self.embs = parent.embs + [emb]
+            # self.likelihood = previous_likelihood * decay_ratio + likelihood #### decay
     def __str__(self):
         print(f'hyp {[self.words, self.logprobs, self.embs]}')
         return ''
