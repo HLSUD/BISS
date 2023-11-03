@@ -45,7 +45,7 @@ def predict(spectrogram=None, model_dir=None, params=None, device=torch.device('
     model.load_state_dict(checkpoint['model'])
     if params.audio_model == 'base':
         in_channel = 512
-    pooling = whis2diffpooling(in_channel, params.num_channel).to(device)
+    pooling = whis2diffpooling(in_channel, params.num_channel, params.pool_method).to(device)
     pooling.load_state_dict(checkpoint['pool_layer'])
     model.eval()
     pooling.eval()
@@ -140,7 +140,7 @@ def main(args):
   params = Config_Wave()
   device = params.device
 #   dataset = from_path(params.data_dirs, params)
-  dataset = ConditionalDataset(params.data_dirs, params.dataset_type)
+  dataset = ConditionalDataset(params.data_dirs, params.dataset_type, params.sample_rate, params.time)
   whisper_model = load_model(params.audio_model).to(device)
   for p in whisper_model.parameters():
     p.requires_grad = params.audio_trainable

@@ -47,7 +47,7 @@ def _nested_map(struct, map_fn):
 def from_path(data_dirs, params, is_distributed=False):
   #with condition
     # print(type(data_dirs),type(params.dataset_type))
-    dataset = ConditionalDataset(data_dirs, params.dataset_type)
+    dataset = ConditionalDataset(data_dirs, params.dataset_type, params.sample_rate, params.time)
     
     return torch.utils.data.DataLoader(
         dataset,
@@ -167,25 +167,24 @@ class WhisperDiffWaveLearner:
 
     audio = features['audio']
     spectrogram = features['spectrogram']
-    time = features['time']
-    time = time.min() # min may not be a good choice
+    # time = features['time']
+    # time = time.min() # min may not be a good choice
     ### preprocess
     # print('getting audio features...')
     audio_features = self.whis_model.embed_audio(spectrogram)
 
     ### random start position of audio feature
-    start = random.randint(0,(time -self.params.time) * self.params.token_num_per_sec)
-    end = start+self.params.whisper_len
-    audio_features = audio_features[:,start:end]
-    samples_per_frame = self.params.sample_rate // self.params.token_num_per_sec
-    start *= samples_per_frame
-    end *= samples_per_frame
-    audio = audio[:,start:end]
-    audio = F.pad(audio, (0,(end-start) - audio.shape[-1]), "constant", 0)
+    # start = random.randint(0,(time -self.params.time) * self.params.token_num_per_sec)
+    # end = start+self.params.whisper_len
+    # audio_features = audio_features[:,start:end]
+    # samples_per_frame = self.params.sample_rate // self.params.token_num_per_sec
+    # start *= samples_per_frame
+    # end *= samples_per_frame
+    audio_len = self.params.time * self.params.sample_rate
+    audio = audio[:,:audio_len]
+    audio = F.pad(audio, (0,audio_len - audio.shape[-1]), "constant", 0) ### check
 
-    # print('projecting...')    
 
-    # print('audio genrating...')
     N, T = audio.shape
     device = audio.device
     self.noise_level = self.noise_level.to(device)
@@ -211,7 +210,7 @@ class WhisperDiffWaveLearner:
 
   def _write_summary(self, step, features, loss):
     writer = self.summary_writer or SummaryWriter(self.model_dir, purge_step=step)
-    writer.add_audio('feature/audio', features['audio'][0], step, sample_rate=self.params.sample_rate)
+    # writer.add_audio('feature/audio', features['audio'][0], step, sample_rate=self.params.sample_rate)
     # if not self.params.unconditional:
     #   writer.add_image('feature/spectrogram', torch.flip(features['spectrogram'][:1], [1]), step)
     writer.add_scalar('train/loss', loss, step)
@@ -265,7 +264,7 @@ def train_distributed(replica_id, replica_count, port, args, params):
 
   if params.audio_model == 'base':
     in_channel = 512
-  pooling = whis2diffpooling(in_channel, params.num_channel).to(device)
+  pooling = whis2diffpooling(in_channel, params.num_channel, params.pool_method).to(device)
   diff_model = DiffWave(params).to(device)
   diff_model = DistributedDataParallel(diff_model, device_ids=[replica_id])
   
@@ -288,7 +287,7 @@ def main(args):
   params.learning_rate = args.learning_rate
   
   replica_count = torch.cuda.device_count()
-  replica_count = args.num_gpus
+#   replica_count = args.num_gpus
   if replica_count > 1:
     if params.batch_size % replica_count != 0:
       raise ValueError(f'Batch size {params.batch_size} is not evenly divisble by # GPUs {replica_count}.')

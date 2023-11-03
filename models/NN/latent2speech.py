@@ -103,8 +103,10 @@ class whis2diffpooling(nn.Module):
 class SpectrogramUpsampler(nn.Module):
   def __init__(self, n_mels):
     super().__init__()
-    self.conv1 = ConvTranspose2d(1, 1, [3, 32], stride=[1, 16], padding=[1, 8])
+    self.conv1 = ConvTranspose2d(1, 1, [3, 32], stride=[1, 16], padding=[1, 8]) ## 30s
     self.conv2 = ConvTranspose2d(1, 1,  [3, 40], stride=[1, 20], padding=[1, 10])
+    # self.conv1 = ConvTranspose2d(1, 1, [3, 8], stride=[1, 4], padding=[1, 502]) ## 5s
+    # self.conv2 = ConvTranspose2d(1, 1,  [3, 32], stride=[1, 16], padding=[1, 8])
 
   def forward(self, x):
     x = torch.unsqueeze(x, 1)

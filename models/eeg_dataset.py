@@ -389,7 +389,7 @@ class eeg_pretrain_dataset(Dataset):
 ## 2. load clip 
 ## 3. resample to 16000
 class ConditionalDataset(Dataset):
-  def __init__(self, path, set_type = 'train', sr = 16000):
+  def __init__(self, path, set_type = 'train', sr = 16000, time=30):
     super().__init__()
     tsv_filename = path + set_type + '.tsv'
     
@@ -397,6 +397,7 @@ class ConditionalDataset(Dataset):
     self.path = path
     self.data=pd.read_csv(tsv_filename,sep='\t')
     self.filenames = np.array(self.data['path'])
+    self.time = time
     
 
   def __len__(self):
@@ -406,9 +407,9 @@ class ConditionalDataset(Dataset):
     audio_filename = self.path + 'clips/' + self.filenames[idx]
     # spec_filename = f'{audio_filename}.spec.npy'
     signal, sr = torchaudio.load(audio_filename)
-    time = signal.shape[-1]//sr
     if sr != self.sr:
         signal = torchaudio.functional.resample(signal, orig_freq=sr, new_freq=self.sr)
+    signal = signal[:self.time*self.sr]
     # spectrogram = np.load(spec_filename)
     # mel = log_mel_spectrogram(signal[0])
     audio = pad_or_trim(signal[0])
@@ -416,7 +417,6 @@ class ConditionalDataset(Dataset):
     return {
         'audio': audio,
         'spectrogram': mel,
-        'time': time
     }
 
 class Whisper_Collator:

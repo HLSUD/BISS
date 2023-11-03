@@ -6,7 +6,7 @@ class Config_Wave:
     def __init__(self):
         # Training params
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.dataset_type = 'train'
+        self.dataset_type = 'trail'
         self.data_dirs = 'data/mozila/cv-corpus-11.0-2022-09-21/zh-CN/'
         self.batch_size=16
         self.learning_rate=2e-4
@@ -19,8 +19,7 @@ class Config_Wave:
         self.n_mels=128 ### not channel num of mel but shape of whisper encoder output
         self.n_fft=400 # 1024
         self.hop_samples=160 # 256
-
-        self.time = 1 ## audio time second, <30
+        self.time = 30 ## audio time second, <30
         self.crop_mel_frames=62,  # Probably an error in paper.
         
         # Model params
@@ -32,12 +31,12 @@ class Config_Wave:
         self.inference_noise_schedule=[0.0001, 0.001, 0.01, 0.05, 0.2, 0.5]
         self.audio_model = 'base'
         self.audio_trainable = False
+        self.pool_method = 'conv'
 
         # unconditional sample len
         self.audio_len = self.sample_rate*self.time # unconditional_synthesis_samples
-
-        self.token_num_per_sec = 50
-        self.whisper_len = self.time * self.token_num_per_sec
+        # self.token_num_per_sec = 50
+        # self.whisper_len = self.time * self.token_num_per_sec
         self.num_channel = 128
 
 if __name__ == '__main__':
