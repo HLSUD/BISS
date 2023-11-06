@@ -72,7 +72,7 @@ class WhisperDiffWaveLearner:
     if pooling is None:
         if params.audio_model == 'base':
             in_channel = 512
-        self.pooling = whis2diffpooling(in_channel, self.params.num_channel).to(params.device)
+        self.pooling = whis2diffpooling(in_channel, self.params.num_channel, self.params.pool_method).to(params.device)
     else:
         self.pooling = pooling
 
@@ -287,7 +287,7 @@ def main(args):
   params.learning_rate = args.learning_rate
   
   replica_count = torch.cuda.device_count()
-#   replica_count = args.num_gpus
+  replica_count = min(args.num_gpus,replica_count)
   if replica_count > 1:
     if params.batch_size % replica_count != 0:
       raise ValueError(f'Batch size {params.batch_size} is not evenly divisble by # GPUs {replica_count}.')

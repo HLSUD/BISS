@@ -90,14 +90,16 @@ class whis2diffpooling(nn.Module):
         if pool_method == 'conv':
             self.projection = nn.ModuleList([
                 SpectrogramDownsampler(in_channel//pow(2,i))
-                for i in range(in_channel//out_channel)
+                for i in range(int(np.log2(in_channel//out_channel)))
             ])
     
     def forward(self, x):
-        # x = x.transpose(1,2)
+        if self.pool_method == 'conv':
+            x = x.transpose(1,2) # only conv
         for layer in self.projection:
             x = layer(x)
-        x = x.transpose(1,2)
+        if self.pool_method == 'linear':
+            x = x.transpose(1,2) # only linear
         return x
 
 class SpectrogramUpsampler(nn.Module):

@@ -6,7 +6,7 @@ class Config_Wave:
     def __init__(self):
         # Training params
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.dataset_type = 'trail'
+        self.dataset_type = 'train'
         self.data_dirs = 'data/mozila/cv-corpus-11.0-2022-09-21/zh-CN/'
         self.batch_size=16
         self.learning_rate=2e-4
