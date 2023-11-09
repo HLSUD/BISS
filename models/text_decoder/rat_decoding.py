@@ -17,6 +17,7 @@ from encoder_model import EncodingModel
 from neuro_encoder import Neuro_Encoder
 from stimuli_model import StimulusModel, affected_trs, LMFeatures
 from data_proc import get_stim, get_resp_word
+from train_EM_rat import get_resp_stim
 # from utils_stim import predict_word_rate, predict_word_times
 
 def file_ext(name: Union[str, Path]) -> str:
@@ -30,14 +31,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--subject", type = str, required = True)
     # parser.add_argument("--experiment", type = str, required = True)
-    # parser.add_argument("--word_info_path", type = str, required = True)
+    parser.add_argument("--word_info_path", type = str, required = True)
     parser.add_argument("--logname", type = str, default= 'text_gpt.log')
     # parser.add_argument("--task", type = str, required = True)
     args = parser.parse_args()
     # merge bands
     
-    sent_words = 18
+    sent_words = 17
     beam_log_len = 15
+    fs = 100
+    gpt_checkpoint = "perceived"
     # determine GPT checkpoint based on experiment
     # if args.experiment in ["imagined_speech"]: gpt_checkpoint = "imagined"
     # else: gpt_checkpoint = "perceived"
@@ -48,6 +51,7 @@ if __name__ == "__main__":
 
     save_location = os.path.join(config.RESULT_DIR, args.subject, 'rat')
     os.makedirs(save_location, exist_ok = True)
+    save_location = '/Volumes/Westside/lhh/'+args.subject+'/rat'
     logging.basicConfig(filename=save_location+'/'+args.logname,
                     filemode='a',
                     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
@@ -59,15 +63,9 @@ if __name__ == "__main__":
     # resp = np.nan_to_num(hf["data"][:])
     # resp = np.load('/Users/honghaoliu/Documents/GitHub/BISR/code/results/regression_arr/resp.npy')
     path = config.NEURO_ENCODER_PATH
-    rat_neural_path = os.path.join('data/rat_eeg/' ,str(args.subject))
-    rat_neural_paths = [str(f) for f in sorted(Path(rat_neural_path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
-    resp = [np.load(rat_neural_paths[i]) for i in range(len(rat_neural_paths))]
-    resp = np.vstack(resp)
-    print(resp.shape)
     neural_encoder = Neuro_Encoder(path, device = config.NEURO_DEVICE)
     word_info_path = args.word_info_path
     word_info_df = pd.read_csv(word_info_path)
-
     ## second to 10 milisecond
     word_info_df['onset'] = np.array(word_info_df['offset'] * fs, dtype=np.int32)
     word_info_df['offset'] = np.array(word_info_df['onset'] * fs, dtype=np.int32)
@@ -83,17 +81,34 @@ if __name__ == "__main__":
     # load models
     # load_location = os.path.join(config.RESULT_DIR, args.subject)
     # word_rate_model = np.load(os.path.join(load_location, "word_rate_model_%s.npz" % word_rate_voxels), allow_pickle = True)
-    encoding_model = np.load(os.path.join(config.RESULT_DIR,args.subject, "encoding_model_%s.npz" % gpt_checkpoint))
-    stim_stat = np.load(os.path.join(config.RESULT_DIR, "stim_mean_std_%s.npz" % gpt_checkpoint))
+    encoding_model = np.load(os.path.join(config.RESULT_DIR,args.subject,'rat', "encoding_model_%s.npz" % gpt_checkpoint))
+    
+    print(save_location)
+    load_resp_stim = True
+    
+    rat_neural_path = os.path.join('data/rat_eeg/' ,str(args.subject))
+    rat_neural_paths = [str(f) for f in sorted(Path(rat_neural_path).rglob('*')) if is_npy_ext(f) and os.path.isfile(f)]
+    resp = [np.load(rat_neural_paths[i]) for i in range(len(rat_neural_paths))]
+    resp = np.vstack(resp)
+    if load_resp_stim:
+        # rresp = np.load(save_location+'/rresp.npy')
+    #     rstim = np.load(save_location+'/rstim.npy')
+        r_mean = np.load(save_location+'/r_mean.npy')
+        r_std = np.load(save_location+'/r_std.npy')
+    # else:
+    #     rresp, rstim, r_mean, r_std = get_resp_stim(gpt, neural_encoder, features,word_info_df, save_location=None)
+    
     weights = encoding_model["weights"]
     vox = encoding_model["voxels"]
-    r_mean = stim_stat["r_mean"]
-    r_std = stim_stat["r_std"]
+    # stim_stat = np.load(os.path.join(config.RESULT_DIR, "stim_mean_std_%s.npz" % gpt_checkpoint))
+    # r_mean = stim_stat["r_mean"]
+    # r_std = stim_stat["r_std"]
 
     rstim,_,_ = get_stim_mean_std(word_info_df, features, config.GPT_WORDS, r_mean, r_std)
     
+    
     rresp = get_resp_word(resp, word_info_df, config.GPT_WORDS)
-    print(rresp.shape)
+    # print(rresp.shape)
     rresp = neural_encoder.make_resp(rresp)
     
     N, chan, remb_len = rresp.shape
@@ -176,5 +191,5 @@ if __name__ == "__main__":
             decoder.add_extensions(local_extensions, likelihoods, nextensions)
         decoder.extend(verbose = False)
         
-    if args.experiment in ["perceived_movie", "perceived_multispeaker"]: decoder.word_times += 10
+    # if args.experiment in ["perceived_movie", "perceived_multispeaker"]: decoder.word_times += 10
     decoder.save(os.path.join(save_location))

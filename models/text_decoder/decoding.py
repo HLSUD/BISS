@@ -80,8 +80,8 @@ if __name__ == "__main__":
     r_mean = stim_stat["r_mean"]
     r_std = stim_stat["r_std"]
 
-    # rstim,_,_ = get_stim_mean_std(word_info_df, features, config.GPT_WORDS, r_mean, r_std)
-    rstim,_,_ = get_stim(word_info_df, features, config.GPT_WORDS)
+    rstim,_,_ = get_stim_mean_std(word_info_df, features, config.GPT_WORDS, r_mean, r_std)
+    # rstim,_,_ = get_stim(word_info_df, features, config.GPT_WORDS)
     
     rresp = get_resp_word(neural_path, word_info_df, config.GPT_WORDS)
     print(rresp.shape)
