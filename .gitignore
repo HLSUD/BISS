@@ -8,6 +8,7 @@ checkpoints/CNN*
 data/data
 data/audio
 data/eeg_data
+data/rat_eeg
 data/mozila
 data/text_decoding
 data/little_prince_word_info

@@ -33,9 +33,13 @@ def get_stim_mean_std(word_info_df, features, word_len, r_mean, r_std):
     return win_mat, r_mean, r_std
 
 
-def get_resp_word(data_path, word_info_df, word_len,out_chan=128, timepts=512, stack = True):
+def get_resp_word(data_path, word_info_df, word_len, fs=100, out_chan=128, timepts=512):
+    
     # one story
-    resp = np.load(data_path)
+    if isinstance(data_path, str):
+        resp = np.load(data_path)
+    else:
+        resp = data_path
     
     # sec_2_resp = np.load(data_path+data_name_m)
 
