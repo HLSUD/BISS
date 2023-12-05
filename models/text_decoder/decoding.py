@@ -26,11 +26,12 @@ if __name__ == "__main__":
     parser.add_argument("--subject", type = str, required = True)
     parser.add_argument("--experiment", type = str, required = True)
     parser.add_argument("--word_info_path", type = str, required = True)
+    parser.add_argument("--beam_log_len", type = int, required = True)
     parser.add_argument("--logname", type = str, default= 'text_gpt.log')
     # parser.add_argument("--task", type = str, required = True)
     args = parser.parse_args()
     sent_words = 18
-    beam_log_len = 15
+    beam_log_len = args.beam_log_len
     # determine GPT checkpoint based on experiment
     if args.experiment in ["imagined_speech"]: gpt_checkpoint = "imagined"
     else: gpt_checkpoint = "perceived"
@@ -146,14 +147,12 @@ if __name__ == "__main__":
             if i < len(decoder.beam):
                 logging.info(decoder.beam[i].words)
         
-       
-        
         for c, (hyp, nextensions) in enumerate(decoder.get_hypotheses()):
             nuc, logprobs = beam_nucs[c]
             
             if len(nuc) < 1: continue
             extend_words = [hyp.words + [x] for x in nuc]
-            
+
             extend_embs = features.extend(extend_words)
             
             extend_embs = np.nan_to_num(np.dot((extend_embs - r_mean), np.linalg.inv(np.diag(r_std))))

@@ -3,6 +3,9 @@ import pandas as pd
 import numpy as np
 from typing import Union
 from pathlib import Path
+from jiwer import wer,cer
+from datasets import load_metric
+from bert_score import BERTScorer
 
 def word_rate_info(path):
     """ a csv file with word onset offset information
@@ -191,6 +194,84 @@ def counter(iterable, countevery=100, total=None, logger=logging.getLogger("coun
                 print(formatted_str)
             else:
                 logger.info(formatted_str)
+
+"""
+WER
+"""
+class WER(object):
+    def __init__(self, use_score = True):
+        self.use_score = use_score
+    
+    def score(self, ref, pred):
+        scores = []
+        for ref_seg, pred_seg in zip(ref, pred):
+            if len(ref_seg) == 0 : error = 1.0
+            else: error = wer(ref_seg, pred_seg)
+            if self.use_score: scores.append(1 - error)
+            else: scores.append(error)
+        return np.array(scores)
+
+"""
+CER
+"""
+class CER(object):
+    def __init__(self, use_score = True):
+        self.use_score = use_score
+    
+    def score(self, ref, pred):
+        scores = []
+        for ref_seg, pred_seg in zip(ref, pred):
+            if len(ref_seg) == 0 : error = 1.0
+            else: error = cer(ref_seg, pred_seg)
+            if self.use_score: scores.append(1 - error)
+            else: scores.append(error)
+        return np.array(scores)
+    
+"""
+BLEU (https://aclanthology.org/P02-1040.pdf)
+"""
+class BLEU(object):
+    def __init__(self, n = 4):
+        self.metric = load_metric("bleu", keep_in_memory=True)
+        self.n = n
+        
+    def score(self, ref, pred):
+        results = []
+        for r, p in zip(ref, pred):
+            self.metric.add_batch(predictions=[p], references=[[r]])
+            results.append(self.metric.compute(max_order = self.n)["bleu"])
+        return np.array(results)
+    
+"""
+METEOR (https://aclanthology.org/W05-0909.pdf)
+"""
+class METEOR(object):
+    def __init__(self):
+        self.metric = load_metric("meteor", keep_in_memory=True)
+
+    def score(self, ref, pred):
+        results = []
+        ref_strings = [" ".join(x) for x in ref]
+        pred_strings = [" ".join(x) for x in pred]
+        for r, p in zip(ref_strings, pred_strings):
+            self.metric.add_batch(predictions=[p], references=[r])
+            results.append(self.metric.compute()["meteor"])
+        return np.array(results)
+        
+"""
+BERTScore (https://arxiv.org/abs/1904.09675)
+"""
+class BERTSCORE(object):
+    def __init__(self, idf_sents=None, rescale = True, score = "f"):
+        self.metric = BERTScorer(lang = "en", rescale_with_baseline = rescale, idf = (idf_sents is not None), idf_sents = idf_sents)
+        if score == "precision": self.score_id = 0
+        elif score == "recall": self.score_id = 1
+        else: self.score_id = 2
+
+    def score(self, ref, pred):
+        ref_strings = [" ".join(x) for x in ref]
+        pred_strings = [" ".join(x) for x in pred]
+        return self.metric.score(cands = pred_strings, refs = ref_strings)[self.score_id].numpy()
 
 if __name__ == '__main__':
     word_rate_info('data/little_prince_word_info/word_s2.csv')
